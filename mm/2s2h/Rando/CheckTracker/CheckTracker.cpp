@@ -6,6 +6,7 @@
 #include "2s2h/Rando/StaticData/StaticData.h"
 #include "2s2h/BenPort.h"
 #include <cstring>
+#include "2s2h/Network/Anchor/Anchor.h"
 
 // Image Icons
 #include "assets/2s2h_assets.h"
@@ -28,7 +29,7 @@ namespace BenGui {
 extern std::shared_ptr<Rando::CheckTracker::CheckTrackerWindow> mRandoCheckTrackerWindow;
 }
 
-#define WIDGET_COLOR UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", 5))
+#define WIDGET_COLOR UIWidgets::GetMenuThemeColor()
 
 #define DEFINE_SCENE(_name, enumValue, _textId, _drawConfig, _restrictionFlags, _persistentCycleFlags, \
                      _entranceSceneId, betterMapSelectIndex, _humanName)                               \
@@ -470,6 +471,7 @@ void CheckTrackerDrawNonLogicalList() {
                                                                           : IM_COL32(255, 255, 255, 0));
                     if (ImGui::IsItemClicked()) {
                         randoSaveCheck.skipped = !randoSaveCheck.skipped;
+                        Anchor::Instance->SendPacket_SetCheckStatus(randoCheckId);
                     }
                     ImGui::TableNextColumn();
                 }

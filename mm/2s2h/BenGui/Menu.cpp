@@ -4,6 +4,7 @@
 #include "BenInputEditorWindow.h"
 #include <ship/window/gui/GuiElement.h>
 #include "BenModals.h"
+#include "UiLocalization.h"
 #include "Notification.h"
 #include <variant>
 #include <spdlog/fmt/fmt.h>
@@ -261,7 +262,12 @@ void Menu::InitElement() {
 }
 
 void Menu::UpdateElement() {
-    menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", defaultThemeIndex));
+    menuThemeIndex = UIWidgets::GetMenuThemeColor();
+    const int32_t configuredTheme = CVarGetInteger("gSettings.Menu.Theme", defaultThemeIndex);
+    if (configuredTheme != menuThemeIndex) {
+        CVarSetInteger("gSettings.Menu.Theme", menuThemeIndex);
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
 }
 
 bool ModernMenuSidebarEntry(std::string label) {
@@ -320,7 +326,7 @@ bool ModernMenuHeaderEntry(std::string label) {
 }
 
 uint32_t Menu::DrawSearchResults(std::string& menuSearchText) {
-    auto menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", defaultThemeIndex));
+    auto menuThemeIndex = UIWidgets::GetMenuThemeColor();
 #if !defined(__ANDROID__)
     // Desktop retains its nested search-results child. On Android, render into
     // the already-scrollable settings child so touch scrolling has one owner.
@@ -482,6 +488,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
         ImGui::SameLine();
     }
 
+    const char* widgetName = BenGui::TranslateUiText(widget.name.c_str());
     try {
         switch (widget.type) {
             case WIDGET_CHECKBOX: {
@@ -494,9 +501,9 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 auto options = std::static_pointer_cast<UIWidgets::CheckboxOptions>(widget.options);
                 options->color = menuThemeIndex;
 #if defined(__ANDROID__)
-                const std::string label = AndroidWrapCheckboxLabel(widget.name);
+                const std::string label = AndroidWrapCheckboxLabel(widgetName);
 #else
-                const std::string label = UIWidgets::WrappedText(widget.name.c_str(), width);
+                const std::string label = UIWidgets::WrappedText(widgetName, width);
 #endif
                 if (UIWidgets::Checkbox(label.c_str(), pointer, *options)) {
                     if (widget.callback != nullptr) {
@@ -513,9 +520,9 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 auto options = std::static_pointer_cast<UIWidgets::CheckboxOptions>(widget.options);
                 options->color = menuThemeIndex;
 #if defined(__ANDROID__)
-                const std::string label = AndroidWrapCheckboxLabel(widget.name);
+                const std::string label = AndroidWrapCheckboxLabel(widgetName);
 #else
-                const std::string label = UIWidgets::WrappedText(widget.name.c_str(), width);
+                const std::string label = UIWidgets::WrappedText(widgetName, width);
 #endif
                 if (UIWidgets::CVarCheckbox(label.c_str(), widget.cVar, *options)) {
                     if (widget.callback != nullptr) {
@@ -531,7 +538,8 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 options.disabled =
                     Ship::Context::GetRawInstance()->GetAudio()->GetAvailableAudioBackends()->size() <= 1;
                 options.disabledTooltip = "Only one audio API is available on this platform.";
-                if (UIWidgets::Combobox("Audio API", &currentAudioBackend, &audioBackendsMap, options)) {
+                if (UIWidgets::Combobox(BenGui::TranslateUiText("Audio API"), &currentAudioBackend, &audioBackendsMap,
+                                        options)) {
                     Ship::Context::GetRawInstance()->GetAudio()->SetCurrentAudioBackend(currentAudioBackend);
                 }
             } break;
@@ -541,7 +549,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 options.tooltip = "Sets the renderer API used by the game.";
                 options.disabled = availableWindowBackends->size() <= 1;
                 options.disabledTooltip = "Only one renderer API is available on this platform.";
-                if (UIWidgets::Combobox("Renderer API (Needs reload)", &configWindowBackend,
+                if (UIWidgets::Combobox(BenGui::TranslateUiText("Renderer API (Needs reload)"), &configWindowBackend,
                                         &availableWindowBackendsMap, options)) {
                     Ship::Context::GetRawInstance()->GetConfig()->SetInt("Window.Backend.Id", configWindowBackend);
                     Ship::Context::GetRawInstance()->GetConfig()->SetString("Window.Backend.Name",
@@ -557,7 +565,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 if (widget.options->color != UIWidgets::Colors::NoColor) {
                     ImGui::PushStyleColor(ImGuiCol_Text, UIWidgets::ColorValues.at(widget.options->color));
                 }
-                ImGui::SeparatorText(widget.name.c_str());
+                ImGui::SeparatorText(widgetName);
                 if (widget.options->color != UIWidgets::Colors::NoColor) {
                     ImGui::PopStyleColor();
                 }
@@ -567,7 +575,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                     ImGui::PushStyleColor(ImGuiCol_Text, UIWidgets::ColorValues.at(widget.options->color));
                 }
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextWrapped("%s", widget.name.c_str());
+                ImGui::TextWrapped("%s", widgetName);
                 if (widget.options->color != UIWidgets::Colors::NoColor) {
                     ImGui::PopStyleColor();
                 }
@@ -583,10 +591,10 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 options->color = menuThemeIndex;
                 bool result = false;
                 if (std::holds_alternative<UIWidgets::ComboVec_t>(options->comboVariant)) {
-                    result = UIWidgets::Combobox(widget.name.c_str(), pointer,
+                    result = UIWidgets::Combobox(widgetName, pointer,
                                                  *std::get<UIWidgets::ComboVec_t>(options->comboVariant), *options);
                 } else if (std::holds_alternative<UIWidgets::ComboMap_t>(options->comboVariant)) {
-                    result = UIWidgets::Combobox(widget.name.c_str(), pointer,
+                    result = UIWidgets::Combobox(widgetName, pointer,
                                                  std::get<UIWidgets::ComboMap_t>(options->comboVariant), *options);
                 }
                 if (result) {
@@ -600,10 +608,10 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 options->color = menuThemeIndex;
                 bool result = false;
                 if (std::holds_alternative<UIWidgets::ComboVec_t>(options->comboVariant)) {
-                    result = UIWidgets::CVarCombobox(widget.name.c_str(), widget.cVar,
+                    result = UIWidgets::CVarCombobox(widgetName, widget.cVar,
                                                      *std::get<UIWidgets::ComboVec_t>(options->comboVariant), *options);
                 } else if (std::holds_alternative<UIWidgets::ComboMap_t>(options->comboVariant)) {
-                    result = UIWidgets::CVarCombobox(widget.name.c_str(), widget.cVar,
+                    result = UIWidgets::CVarCombobox(widgetName, widget.cVar,
                                                      std::get<UIWidgets::ComboMap_t>(options->comboVariant), *options);
                 }
                 if (result) {
@@ -621,7 +629,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 }
                 auto options = std::static_pointer_cast<UIWidgets::IntSliderOptions>(widget.options);
                 options->color = menuThemeIndex;
-                if (UIWidgets::SliderInt(widget.name.c_str(), pointer, *options)) {
+                if (UIWidgets::SliderInt(widgetName, pointer, *options)) {
                     if (widget.callback != nullptr) {
                         widget.callback(widget);
                     }
@@ -630,7 +638,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
             case WIDGET_CVAR_SLIDER_INT: {
                 auto options = std::static_pointer_cast<UIWidgets::IntSliderOptions>(widget.options);
                 options->color = menuThemeIndex;
-                if (UIWidgets::CVarSliderInt(widget.name.c_str(), widget.cVar, *options)) {
+                if (UIWidgets::CVarSliderInt(widgetName, widget.cVar, *options)) {
                     if (widget.callback != nullptr) {
                         widget.callback(widget);
                     }
@@ -646,7 +654,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 }
                 auto options = std::static_pointer_cast<UIWidgets::FloatSliderOptions>(widget.options);
                 options->color = menuThemeIndex;
-                if (UIWidgets::SliderFloat(widget.name.c_str(), pointer, *options)) {
+                if (UIWidgets::SliderFloat(widgetName, pointer, *options)) {
                     if (widget.callback != nullptr) {
                         widget.callback(widget);
                     }
@@ -655,7 +663,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
             case WIDGET_CVAR_SLIDER_FLOAT: {
                 auto options = std::static_pointer_cast<UIWidgets::FloatSliderOptions>(widget.options);
                 options->color = menuThemeIndex;
-                if (UIWidgets::CVarSliderFloat(widget.name.c_str(), widget.cVar, *options)) {
+                if (UIWidgets::CVarSliderFloat(widgetName, widget.cVar, *options)) {
                     if (widget.callback != nullptr) {
                         widget.callback(widget);
                     }
@@ -664,7 +672,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
             case WIDGET_CVAR_BTN_SELECTOR: {
                 auto options = std::static_pointer_cast<UIWidgets::BtnSelectorOptions>(widget.options);
                 options->color = menuThemeIndex;
-                if (UIWidgets::CVarBtnSelector(widget.name.c_str(), widget.cVar, *options)) {
+                if (UIWidgets::CVarBtnSelector(widgetName, widget.cVar, *options)) {
                     if (widget.callback != nullptr) {
                         widget.callback(widget);
                     }
@@ -673,7 +681,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
             case WIDGET_BUTTON: {
                 auto options = std::static_pointer_cast<UIWidgets::ButtonOptions>(widget.options);
                 options->color = menuThemeIndex;
-                if (UIWidgets::Button(widget.name.c_str(), *options)) {
+                if (UIWidgets::Button(widgetName, *options)) {
                     if (widget.callback != nullptr) {
                         widget.callback(widget);
                     }
@@ -700,7 +708,7 @@ void Menu::MenuDrawItem(WidgetInfo& widget, uint32_t width, UIWidgets::Colors me
                 }
                 auto options = std::static_pointer_cast<UIWidgets::WindowButtonOptions>(widget.options);
                 options->color = menuThemeIndex;
-                UIWidgets::WindowButton(widget.name.c_str(), widget.cVar, window, *options);
+                UIWidgets::WindowButton(widgetName, widget.cVar, window, *options);
                 if (!window->IsVisible()) {
 #if defined(__ANDROID__)
                     // The integrated Mod Menu may use ordinary ImGui::Text(),
@@ -782,7 +790,7 @@ void Menu::DrawElement() {
     for (auto& [reason, info] : disabledMap) {
         info.active = info.evaluation(info);
     }
-    auto menuThemeIndex = static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", defaultThemeIndex));
+    auto menuThemeIndex = UIWidgets::GetMenuThemeColor();
 
     windowHeight = ImGui::GetMainViewport()->WorkSize.y;
     windowWidth = ImGui::GetMainViewport()->WorkSize.x;
@@ -876,9 +884,9 @@ void Menu::DrawElement() {
     }
 #endif
     for (auto& label : menuOrder) {
-        ImVec2 size = ImGui::CalcTextSize(label.c_str());
+        ImVec2 size = ImGui::CalcTextSize(BenGui::TranslateUiText(label.c_str()));
         headerSizes.push_back(size);
-        headerWidth += size.x + style.FramePadding.x * 2;
+        headerWidth += size.x + style.FramePadding.x * 2 + style.ItemSpacing.x;
         if (label == headerIndex) {
             headerWidth += style.ItemSpacing.x;
         }
@@ -961,7 +969,7 @@ void Menu::DrawElement() {
             if (!selected) {
                 ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
             }
-            const bool clicked = ModernMenuHeaderEntry(entry.label);
+            const bool clicked = ModernMenuHeaderEntry(BenGui::TranslateUiText(entry.label.c_str()));
             if (!selected) {
                 ImGui::PopStyleColor();
             }
@@ -981,18 +989,19 @@ void Menu::DrawElement() {
             : 0.0f;
         const float availableComboWidth = std::max(1.0f, rowWidth -
             (headerSearch ? minimumSearchWidth + gap : 0.0f));
-        const float labelledComboWidth = ImGui::CalcTextSize(menuEntries.at(headerIndex).label.c_str()).x +
+        const char* translatedHeader = BenGui::TranslateUiText(menuEntries.at(headerIndex).label.c_str());
+        const float labelledComboWidth = ImGui::CalcTextSize(translatedHeader).x +
                                         style.FramePadding.x * 2.0f + ImGui::GetFrameHeight();
         const bool compactCombo = availableComboWidth < labelledComboWidth;
         const float comboWidth = std::min(availableComboWidth,
             compactCombo ? ImGui::GetFrameHeight() : labelledComboWidth);
         ImGui::SetNextItemWidth(comboWidth);
         UIWidgets::PushStyleCombobox(menuThemeIndex);
-        if (ImGui::BeginCombo("##AndroidHeaderTab", compactCombo ? "" : menuEntries.at(headerIndex).label.c_str(),
+        if (ImGui::BeginCombo("##AndroidHeaderTab", compactCombo ? "" : translatedHeader,
                               compactCombo ? ImGuiComboFlags_NoPreview : ImGuiComboFlags_None)) {
             for (const auto& label : menuOrder) {
                 const bool selected = headerIndex == label;
-                if (ImGui::Selectable(menuEntries.at(label).label.c_str(), selected)) {
+                if (ImGui::Selectable(BenGui::TranslateUiText(menuEntries.at(label).label.c_str()), selected)) {
                     headerIndex = label;
                     CVarSetString(headerCvar, label.c_str());
                     CVarSave();
@@ -1057,7 +1066,7 @@ void Menu::DrawElement() {
         if (headerIndex != label) {
             ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
         }
-        if (ModernMenuHeaderEntry(entry.label)) {
+        if (ModernMenuHeaderEntry(BenGui::TranslateUiText(entry.label.c_str()))) {
             if (headerSearch) {
                 menuSearch.Clear();
             }
@@ -1182,7 +1191,8 @@ void Menu::DrawElement() {
 
     float widestSidebarLabel = 0.0f;
     for (auto& sidebarLabel : menuEntries.at(headerIndex).sidebarOrder) {
-        widestSidebarLabel = std::max(widestSidebarLabel, ImGui::CalcTextSize(sidebarLabel.c_str()).x);
+        widestSidebarLabel =
+            std::max(widestSidebarLabel, ImGui::CalcTextSize(BenGui::TranslateUiText(sidebarLabel.c_str())).x);
     }
     sidebarWidth = std::max(sidebarWidth, widestSidebarLabel + style.FramePadding.x * 2 + style.ItemSpacing.x * 2);
 #if defined(__ANDROID__)
@@ -1201,7 +1211,7 @@ void Menu::DrawElement() {
         if (sectionIndex != sidebarLabel) {
             ImGui::PushStyleColor(ImGuiCol_Button, { 0, 0, 0, 0 });
         }
-        if (ModernMenuSidebarEntry(sidebarLabel)) {
+        if (ModernMenuSidebarEntry(BenGui::TranslateUiText(sidebarLabel.c_str()))) {
             if (headerSearch) {
                 menuSearch.Clear();
             }

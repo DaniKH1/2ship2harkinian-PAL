@@ -13,7 +13,7 @@ extern std::shared_ptr<ItemTrackerWindow> mItemTrackerWindow;
 void ItemTrackerSettingsWindow::UpdateElement() {
 }
 
-#define WIDGET_COLOR UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", 5))
+#define WIDGET_COLOR UIWidgets::GetMenuThemeColor()
 #define CVAR_NAME_VISIBILITY_MODE "gSettings.ItemTracker.VisibilityMode"
 #define CVAR_NAME_VISIBILITY_BTN "gSettings.ItemTracker.VisibilityBtn"
 #define CVAR_VISIBILITY_MODE CVarGetInteger(CVAR_NAME_VISIBILITY_MODE, ITEM_TRACKER_VISIBILITY_MODE_ALWAYS)

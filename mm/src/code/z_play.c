@@ -967,10 +967,24 @@ const char D_801DFA34[][4] = {
 };
 
 void Play_UpdateMain(PlayState* this) {
+    static bool sSettingsMenuAudioPaused = false;
     s32 pad;
     Input* input = this->state.input;
     s32 sp5C = false;
     u8 freezeFlashTimer;
+
+    const bool pauseGameForSettings =
+        CVarGetInteger("gWindows.Menu", 0) && !CVarGetInteger("gNetwork.Anchor.Enabled", 0);
+    if (pauseGameForSettings != sSettingsMenuAudioPaused) {
+        if (!IS_PAUSED(&this->pauseCtx)) {
+            Audio_PlaySfx_PauseMenuOpenOrClose(pauseGameForSettings ? SFX_PAUSE_MENU_OPEN : SFX_PAUSE_MENU_CLOSE);
+        }
+        sSettingsMenuAudioPaused = pauseGameForSettings;
+    }
+
+    if (pauseGameForSettings) {
+        return;
+    }
 
     gSegments[4] = OS_K0_TO_PHYSICAL(this->objectCtx.slots[this->objectCtx.mainKeepSlot].segment);
     gSegments[5] = OS_K0_TO_PHYSICAL(this->objectCtx.slots[this->objectCtx.subKeepSlot].segment);
@@ -1365,6 +1379,8 @@ void Play_DrawMain(PlayState* this) {
                 sp25B = true;
                 goto PostWorldDraw;
             }
+
+            GameInteractor_ExecuteOnPlayDrawWorldStart();
 
             if (!this->soaringCsOrSoTCsPlaying) {
                 if (1) {

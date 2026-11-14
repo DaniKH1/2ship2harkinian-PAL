@@ -616,6 +616,7 @@ static void DrawGeneralTab() {
         "Container Style Matches Contents", "gRando.CSMC",
         UIWidgets::CheckboxOptions().Tooltip("This will make the contents of a container match the container itself. "
                                              "Eg chests, pots, crates, grass, etc."));
+
     UIWidgets::CVarCombobox(
         "Junk Items", "gRando.JunkItems", &junkItemsOptions,
         UIWidgets::ComboboxOptions()
@@ -1174,7 +1175,7 @@ static void DrawItemPoolTab() {
         CVarSliderInt("##trapcount", Rando::StaticData::Options[RO_TRAP_AMOUNT].cvar,
                       IntSliderOptions({ { .tooltip = "How many Traps are shuffled into the Item Pool." } })
                           .LabelPosition(LabelPosition::None)
-                          .Color(UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", 5)))
+                          .Color(UIWidgets::GetMenuThemeColor())
                           .Format("Traps: %i")
                           .Min(1)
                           .Max(100)
@@ -1602,7 +1603,7 @@ static void DrawCheckExclusionsTab() {
         return;
     }
 
-    auto menuThemeColor = UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", LightBlue));
+    auto menuThemeColor = UIWidgets::GetMenuThemeColor();
     bool excludeShownChecks = false;
     bool restoreShownChecks = false;
     static ImGuiTextFilter checkSearchFilter;

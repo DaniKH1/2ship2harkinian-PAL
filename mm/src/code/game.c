@@ -14,6 +14,8 @@
 
 #include "2s2h/GameInteractor/GameInteractor.h"
 
+extern bool BenGui_IsStartupMenuActive(void);
+
 #ifdef __ANDROID__
 void ResourceMgr_ReleaseGameStateTextures(void);
 #endif
@@ -156,6 +158,10 @@ void GameState_Update(GameState* gameState) {
     GraphicsContext* gfxCtx = gameState->gfxCtx;
 
     GameState_SetFrameBuffer(gameState->gfxCtx);
+
+    if (BenGui_IsStartupMenuActive()) {
+        return;
+    }
 
     GameInteractor_ExecuteOnGameStateMainStart();
 

@@ -1,8 +1,18 @@
 #include "BenGui.hpp"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+
 #include <spdlog/spdlog.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <algorithm>
+#include <atomic>
+#include <string>
+#include <vector>
+#include "fast/Fast3dGui.h"
 #include <libultraship/window/gui/GfxDebuggerWindow.h>
 #include <libultraship/bridge/consolevariablebridge.h>
 #include "UIWidgets.hpp"
@@ -22,6 +32,7 @@
 #endif
 
 #include "include/global.h"
+#include "BenPort.h"
 
 #include "Enhancements/Trackers/ItemTracker/ItemTracker.h"
 #include "Enhancements/Trackers/ItemTracker/ItemTrackerSettings.h"
@@ -30,10 +41,11 @@
 #include "Enhancements/Trackers/TimeSplits/TimesplitsSettings.h"
 #include "BenMenu.h"
 #include "BenMenuBar.h"
-
+#include "UiLocalization.h"
 #ifdef __ANDROID__
 #include <ship/port/mobile/MobileImpl.h>
 #endif
+#include "DeveloperTools/ActionDebugger.h"
 #include "DeveloperTools/HookDebugger.h"
 #include "DeveloperTools/SaveEditor.h"
 #include "DeveloperTools/ActorViewer.h"
@@ -41,10 +53,24 @@
 #include "DeveloperTools/EventLog.h"
 #include "DeveloperTools/DLViewer.h"
 #include "DeveloperTools/MessageViewer.h"
+#include "2s2h/Network/Anchor/Anchor.h"
+
+namespace {
+std::atomic_bool gStartupMenuActive{ true };
+}
+
+extern "C" bool BenGui_IsStartupMenuActive(void) {
+    return gStartupMenuActive.load();
+}
 
 namespace BenGui {
 
 void BenMenu::SetVisibility(bool visible) {
+    if (visible) {
+        CVarSetString("gSettings.Menu.ActiveHeader", "Settings");
+        CVarSetString("gSettings.Menu.SettingsSidebarSection", "General");
+    }
+
     Ship::Menu::SetVisibility(visible);
 
 #ifdef __ANDROID__
@@ -67,6 +93,7 @@ std::shared_ptr<Ship::GuiWindow> mStatsWindow;
 std::shared_ptr<Ship::GuiWindow> mGfxDebuggerWindow;
 std::shared_ptr<Ship::GuiWindow> mInputEditorWindow;
 
+std::shared_ptr<ActionDebuggerWindow> mActionDebuggerWindow;
 std::shared_ptr<HookDebuggerWindow> mHookDebuggerWindow;
 std::shared_ptr<SaveEditorWindow> mSaveEditorWindow;
 std::shared_ptr<HudEditorWindow> mHudEditorWindow;
@@ -90,13 +117,185 @@ std::shared_ptr<TimesplitsSettingsWindow> mTimesplitsSettingsWindow;
 std::shared_ptr<InputViewer> mInputViewer;
 std::shared_ptr<InputViewerSettingsWindow> mInputViewerSettings;
 std::shared_ptr<BenModalWindow> mModalWindow;
+std::shared_ptr<AnchorRoomWindow> mAnchorRoomWindow;
+
+class StartupMenuWindow : public Ship::GuiWindow {
+  public:
+    StartupMenuWindow()
+        : GuiWindow("", false, "2Ship Main Menu", ImVec2(-1, -1),
+                    ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+                        ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar |
+                        ImGuiWindowFlags_NoScrollWithMouse) {
+    }
+
+    void InitElement() override {}
+    void UpdateElement() override {
+        if (gStartupMenuActive.load() && !IsVisible() &&
+            (BenGui::mBenMenu == nullptr || !BenGui::mBenMenu->IsVisible()) &&
+            (BenGui::mModMenuWindow == nullptr || !BenGui::mModMenuWindow->IsVisible())) {
+            Show();
+        }
+    }
+
+    void Draw() override {
+        if (!IsVisible()) {
+            return;
+        }
+
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->Pos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(viewport->Size, ImGuiCond_Always);
+        ImGui::SetNextWindowViewport(viewport->ID);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        GuiWindow::Draw();
+        ImGui::PopStyleVar(2);
+    }
+
+    void DrawElement() override {
+        const ImGuiViewport* viewport = ImGui::GetMainViewport();
+        const ImVec2 origin = viewport->Pos;
+        const ImVec2 size = viewport->Size;
+        const ImVec2 bottomRight(origin.x + size.x, origin.y + size.y);
+        ImDrawList* drawList = ImGui::GetWindowDrawList();
+        drawList->AddRectFilled(origin, bottomRight, IM_COL32(40, 29, 35, 255));
+
+        ImFont* logoFont = OTRGlobals::Instance->fontTriforce;
+
+        auto gui = std::dynamic_pointer_cast<Fast::Fast3dGui>(
+            Ship::Context::GetRawInstance()->GetWindow()->GetGui());
+        if (gui != nullptr) {
+            if (!gui->HasTextureByName("Startup-Majora-Mask")) {
+                const HRSRC resource = FindResourceW(nullptr, L"STARTUP_MASK", RT_RCDATA);
+                const HGLOBAL resourceHandle = resource != nullptr ? LoadResource(nullptr, resource) : nullptr;
+                const DWORD resourceSize = resource != nullptr ? SizeofResource(nullptr, resource) : 0;
+                const void* resourceData = resourceHandle != nullptr ? LockResource(resourceHandle) : nullptr;
+                if (resourceData != nullptr && resourceSize > 0) {
+                    gui->LoadTextureFromEncodedImage("Startup-Majora-Mask",
+                                                     static_cast<const uint8_t*>(resourceData), resourceSize);
+                } else {
+                    SPDLOG_WARN("Could not load embedded startup background (Windows error {}).", GetLastError());
+                }
+            }
+
+            const ImTextureID maskTexture = gui->GetTextureByName("Startup-Majora-Mask");
+            if (maskTexture != nullptr) {
+                const ImVec2 cropMin(0.08f, 0.25f);
+                const ImVec2 cropMax(0.92f, 0.72f);
+                constexpr float cropAspect = (0.84f * 1125.0f) / (0.47f * 2000.0f);
+                const float artWidth = std::min(size.x * 0.56f, size.y * 0.92f * cropAspect);
+                const float artHeight = artWidth / cropAspect;
+                const ImVec2 artMin(origin.x + size.x * 0.48f, origin.y + (size.y - artHeight) * 0.5f);
+                ImGui::SetCursorScreenPos(artMin);
+                ImGui::Image(const_cast<void*>(maskTexture), ImVec2(artWidth, artHeight), cropMin, cropMax);
+            }
+        }
+
+        const float scale = std::clamp(size.x / 1280.0f, 0.8f, 1.8f);
+        const float left = origin.x + size.x * 0.072f;
+        const char* logo = "2Ship2Harkinian";
+        float logoSize = std::min(size.y * 0.20f, size.x * 0.075f);
+        const ImVec2 logoPos(left, origin.y + size.y * 0.17f);
+        if (logoFont != nullptr) {
+            const ImVec2 logoTextSize = logoFont->CalcTextSizeA(logoSize, FLT_MAX, 0.0f, logo);
+            if (logoTextSize.x > size.x * 0.43f) {
+                logoSize *= size.x * 0.43f / logoTextSize.x;
+            }
+            drawList->AddText(logoFont, logoSize, ImVec2(logoPos.x + 3.0f, logoPos.y + 4.0f),
+                              IM_COL32(25, 16, 33, 255), logo);
+            drawList->AddText(logoFont, logoSize, ImVec2(logoPos.x - 1.0f, logoPos.y - 1.0f),
+                              IM_COL32(209, 137, 229, 255), logo);
+            drawList->AddText(logoFont, logoSize, logoPos, IM_COL32(139, 66, 177, 255), logo);
+        }
+
+        const char* menuLabels[] = { "Start Game", "Settings", "Mods", "Exit" };
+        const float buttonTop = origin.y + size.y * 0.53f;
+        const ImVec2 buttonSize(size.x * 0.32f, 48.0f * scale);
+        static int selectedItem = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, false)) {
+            selectedItem = (selectedItem + 3) % 4;
+        } else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) {
+            selectedItem = (selectedItem + 1) % 4;
+        }
+
+        for (int i = 0; i < 4; ++i) {
+            const ImVec2 buttonPos(left, buttonTop + i * buttonSize.y);
+            ImGui::SetCursorScreenPos(buttonPos);
+            const std::string itemId = std::string("##startup-menu-") + std::to_string(i);
+            const bool clicked = ImGui::InvisibleButton(itemId.c_str(), buttonSize);
+            const bool hovered = ImGui::IsItemHovered();
+            if (hovered) {
+                selectedItem = i;
+            }
+            const bool selected = selectedItem == i;
+            if (selected) {
+                drawList->AddRectFilled(buttonPos, ImVec2(buttonPos.x + buttonSize.x, buttonPos.y + buttonSize.y),
+                                        IM_COL32(70, 56, 49, 175));
+                drawList->AddRectFilled(buttonPos, ImVec2(buttonPos.x + 4.0f * scale, buttonPos.y + buttonSize.y),
+                                        IM_COL32(255, 190, 83, 255));
+            }
+            const char* label = BenGui::TranslateUiText(menuLabels[i]);
+            const ImU32 labelColor = selected ? IM_COL32(255, 196, 91, 255) : IM_COL32(242, 240, 244, 255);
+            drawList->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 1.65f,
+                              ImVec2(buttonPos.x + 18.0f * scale, buttonPos.y + 8.0f * scale), labelColor, label);
+
+            if (clicked || (selected && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+                switch (i) {
+                    case 0: {
+                        std::string modStartError;
+                        if (!ModMenu_StartGame(modStartError)) {
+                            BenGui::RegisterPopup("Mod Loader Error", modStartError);
+                            break;
+                        }
+                        if (BenGui::mBenMenu != nullptr) {
+                            BenGui::mBenMenu->Hide();
+                        }
+                        if (BenGui::mModMenuWindow != nullptr) {
+                            BenGui::mModMenuWindow->Hide();
+                        }
+                        gStartupMenuActive.store(false);
+                        Hide();
+                        break;
+                    }
+                    case 1:
+                        Hide();
+                        if (BenGui::mModMenuWindow != nullptr) {
+                            BenGui::mModMenuWindow->Hide();
+                        }
+                        if (BenGui::mBenMenu != nullptr) {
+                            BenGui::mBenMenu->Show();
+                        }
+                        break;
+                    case 2:
+                        Hide();
+                        if (BenGui::mBenMenu != nullptr) {
+                            BenGui::mBenMenu->Hide();
+                        }
+                        if (BenGui::mModMenuWindow != nullptr) {
+                            BenGui::mModMenuWindow->Show();
+                        }
+                        break;
+                    case 3:
+                        Ship::Context::GetRawInstance()->GetWindow()->Close();
+                        break;
+                }
+            }
+        }
+
+    }
+};
+
+static std::shared_ptr<StartupMenuWindow> mStartupMenuWindow;
 
 UIWidgets::Colors GetMenuThemeColor() {
-    return mBenMenu->GetMenuThemeColor();
+    return UIWidgets::GetMenuThemeColor();
 }
 
 void SetupMenu() {
     auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
+    CVarSetInteger("gWindows.Menu", 0);
+    Ship::Context::GetRawInstance()->GetConsoleVariables()->Save();
     mBenMenu = std::make_shared<BenMenu>("gWindows.Menu", "Settings Menu");
     gui->SetMenu(mBenMenu);
 
@@ -119,6 +318,7 @@ void SetupMenu() {
 
 void SetupGuiElements() {
     auto gui = Ship::Context::GetRawInstance()->GetWindow()->GetGui();
+    gStartupMenuActive.store(true);
 
     mStatsWindow = gui->GetGuiWindow("Stats");
     if (mStatsWindow == nullptr) {
@@ -138,6 +338,10 @@ void SetupGuiElements() {
     if (mInputEditorWindow == nullptr) {
         SPDLOG_ERROR("Could not find input editor window");
     }
+
+    mActionDebuggerWindow =
+        std::make_shared<ActionDebuggerWindow>("gWindows.ActionDebugger", "Action Debugger", ImVec2(560, 680));
+    gui->AddGuiWindow(mActionDebuggerWindow);
 
     mHookDebuggerWindow =
         std::make_shared<HookDebuggerWindow>("gWindows.HookDebugger", "Hook Debugger", ImVec2(480, 600));
@@ -172,8 +376,13 @@ void SetupGuiElements() {
     mAudioEditorWindow = std::make_shared<AudioEditor>("gWindows.AudioEditor", "Audio Editor", ImVec2(520, 600));
     gui->AddGuiWindow(mAudioEditorWindow);
 
-    mModMenuWindow = std::make_shared<ModMenuWindow>("gWindows.ModMenu", "Mod Menu", ImVec2(820, 630));
+    mModMenuWindow = std::make_shared<ModMenuWindow>(
+        "gWindows.ModMenu", false, "Mod Menu", ImVec2(-1, -1),
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
+            ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     gui->AddGuiWindow(mModMenuWindow);
+    mModMenuWindow->Hide();
 
     mItemTrackerWindow = std::make_shared<ItemTrackerWindow>("gWindows.ItemTracker", "Item Tracker");
     gui->AddGuiWindow(mItemTrackerWindow);
@@ -209,6 +418,13 @@ void SetupGuiElements() {
     mInputViewerSettings = std::make_shared<InputViewerSettingsWindow>("gWindows.InputViewerSettings",
                                                                        "Input Viewer Settings", ImVec2(500, 525));
     gui->AddGuiWindow(mInputViewerSettings);
+
+    mAnchorRoomWindow = std::make_shared<AnchorRoomWindow>("gWindows.AnchorRoom", "Anchor Room");
+    gui->AddGuiWindow(mAnchorRoomWindow);
+
+    mStartupMenuWindow = std::make_shared<StartupMenuWindow>();
+    gui->AddGuiWindow(mStartupMenuWindow);
+    mStartupMenuWindow->Show();
 }
 
 void Destroy() {
@@ -228,6 +444,7 @@ void Destroy() {
     mRandoCheckTrackerWindow = nullptr;
     mRandoCheckTrackerSettingsWindow = nullptr;
 
+    mActionDebuggerWindow = nullptr;
     mHookDebuggerWindow = nullptr;
     mSaveEditorWindow = nullptr;
     mHudEditorWindow = nullptr;
@@ -241,6 +458,8 @@ void Destroy() {
     mItemTrackerSettingsWindow = nullptr;
     mInputViewer = nullptr;
     mInputViewerSettings = nullptr;
+    mAnchorRoomWindow = nullptr;
+    mStartupMenuWindow = nullptr;
 }
 
 void RegisterPopup(std::string title, std::string message, std::string button1, std::string button2,

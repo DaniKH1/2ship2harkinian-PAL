@@ -1,119 +1,96 @@
 # 2 Ship 2 Harkinian PAL
 
-Unofficial fork of 2 Ship 2 Harkinian adding support for the European / PAL 1.1 release of The Legend of Zelda: Majora's Mask.
+Unofficial Windows x64 fork of [2 Ship 2 Harkinian](https://github.com/2ship2harkinian/2ship2harkinian), based on the PAL-supporting [2Ship2Harkinian PAL fork](https://github.com/alexbcz/2ship2harkinian-PAL). It combines European Majora's Mask support with multiplayer, graphics, interface, and mod-management improvements.
 
-This fork supports the PAL 1.1 ROM on Windows, Linux, macOS and Android, including English, French, German and Spanish.
-
-## Supported Platforms
+## Supported Platform
 
 - Windows x64
-- Linux x86_64
-- macOS
-- Android ARM64
 
 ## Supported ROMs
 
 - Majora's Mask US / NTSC-U
-- Majora's Mask European / PAL 1.1 (Rev 1): English, French, German and Spanish
+- Majora's Mask European / PAL 1.1 (Rev 1): English, French, German, and Spanish
 
-For PAL 1.1, the language can be changed from **File Select > Options**.
+For PAL 1.1, the game language can be changed from **File Select > Options**.
 
 ## Installation
 
-Download the appropriate build from:
+Download a Windows release from the [releases page](https://github.com/DaniKH1/2ship2harkinian-PAL/releases), extract it, and launch `2ship.exe`. On first launch, select your supported Majora's Mask ROM when prompted.
 
-https://github.com/alexbcz/2ship2harkinian-PAL/releases
+No game ROM is included in this repository or its releases.
 
-### Windows
+## Features and Changes
 
-1. Download the Windows ZIP and extract it to a folder.
-2. Launch `2ship.exe`.
-3. On first launch, select your supported Majora's Mask ROM when prompted.
+### PAL, language, and startup menu
 
-### Linux
+- Adds European / PAL 1.1 ROM support and multilingual game assets while preserving US / NTSC-U compatibility.
+- Adds a custom startup screen with **Start Game**, **Settings**, **Mods**, and **Exit**. The Majora's Mask artwork is embedded in the Windows executable rather than loaded as a loose image file.
+- Adds an English / Spanish interface-language selector. The menu and commonly used settings have Spanish translations; untranslated text remains in English.
+- The settings window starts closed on each launch instead of restoring its previous open state.
+- Targets Windows x64; release packaging and CI are configured for that platform.
 
-The Linux release is distributed as an **AppImage**: a portable executable that does not require a traditional installation or extracting an archive.
+### Anchor multiplayer
 
-1. Download the Linux `.AppImage` file.
-2. Make it executable and launch it.
-3. On first launch, provide your supported Majora's Mask ROM when prompted.
+The **Anchor** client is available under **Settings > Network > Anchor**. Set a player name and room ID, then enable Anchor to connect. Players who should share items and flags must use the same team ID. Room hosts can configure PvP, location visibility, and teleporting; the Anchor panel also provides setup instructions and a public global room.
 
-### macOS
+Anchor is beta software. If using Anchor with Archipelago, disable item syncing in the Anchor room settings to avoid conflicts.
 
-1. Download the macOS `.dmg` file.
-2. Open the DMG to mount the disk image.
-3. Open the application (`.app`) inside it, or copy it to your **Applications** folder first.
-4. On first launch, select your supported Majora's Mask ROM when prompted.
+### Graphics, camera, and controls
 
-If macOS blocks the application because it is from an unidentified developer, review the warning and, if you trust the download, allow the app through **System Settings > Privacy & Security**.
+- Adds flat-shading and rain cosmetic options, dungeon-specific 3D keys, a screen-distortion toggle, and a fix for circular-shadow streaks. Related graphics options are grouped under **Graphics Overhaul Settings**; 3D keys appear automatically in Randomizer.
+- Sets the default target frame rate to 60 FPS.
+- Adjusts the default camera options to fix targeting-camera snap and disable auto-centering, with both camera-axis inversion options off by default.
+- Uses the D-pad for the C-button controls by default.
+- Opening Settings during offline gameplay pauses gameplay and mutes game audio; online Anchor play is not paused by that offline behavior.
 
-### Android
+### Mod library and catalog
 
-**Requirements:** Android 7 or later, an ARM64 device, and OpenGL ES 3.0 or later.
+The redesigned Mod Menu organizes installed mods into active and inactive lists, supports searching, and lets you change load priority; higher entries override lower entries. Files from the same mod folder are grouped together, so enabling, disabling, deleting, or reordering a mod applies to its archives together. Mods can be removed with a confirmation prompt.
 
-1. Download and install the Android APK.
-2. Launch the app.
-3. If game assets have not already been extracted, select your supported Majora's Mask ROM when prompted. The app will generate `mm.o2r`.
-4. Subsequent launches should start directly into the game.
+Each mod's **Mod Settings** can expose optional content folders and variant folders as controls. Variant folders become categories with dropdowns; a folder named with terms such as Vanilla, Default, Base, Original, or OG is preferred as the default when available. Loose supported archives are organized into individual mod folders when the library is initialized.
 
-To open the menu, tap the on-screen **Back** button. On a physical controller, use the **Back** or **minus (-)** button, depending on its mapping.
+The **Download Mods** catalog includes:
 
-#### Important: Switching from an existing US Android installation
+- GameBanana Majora's Mask mods.
+- Majora's Mask-compatible ModLoader64 models, filterable by Adult, Child, Combined, Emotes, and Equipment.
+- ModLoader64 community mods.
+- A curated selection of Majora's Mask texture packs from Emulation King.
 
-If you previously installed another Android port of 2 Ship 2 Harkinian and extracted a **US / NTSC-U ROM**, this PAL fork may reuse the existing `mm.o2r` in your shared `2S2H` data folder. Since US ROMs are still supported, the game then starts in the **US version**, even when using the PAL APK.
+Searches and thumbnail loading run asynchronously, with thumbnail aspect ratios preserved. Downloads show transfer and installation progress, and catalog thumbnails use a temporary cache at `mods/.mod-browser-cache` that is cleared when the application closes. ZIP mod downloads are installed in a folder named after the mod. Extraction accepts supported `.o2r` and `.pak` archives and preserves their nested folder layout, including when different variant folders contain archives with the same filename.
 
-To switch to PAL 1.1:
+Texture packs are downloaded separately into `mods/Texture Packs` and retained as ZIP files. Rice, Glide64 `.dat`, and GlideN64 `.htc` options are offered for download only; **this build does not apply those texture-pack formats**.
 
-1. Open the PAL app and check the selected data folder under **Settings > General**.
-2. Close the app completely.
-3. In that data folder, **remove only `mm.o2r`**. You can move it outside the folder first if you want to keep a backup of your US extraction.
-4. Launch the PAL app again. When prompted, select your **European PAL 1.1 (Rev 1)** ROM and let the app generate a new `mm.o2r`.
-5. Select your preferred language under **File Select > Options**.
+### ModLoader64 and Z64Online packages
 
-**Do not delete the entire `2S2H` folder** or your save files and settings. Do not remove `2ship.o2r`: it is a different resource archive.
+Supported ModLoader64 / Z64Online `.pak` player-model and equipment mods are converted to `.o2r` when you select **Start Game**. Conversion is limited to content targeting Majora's Mask; OoT-only assets are not generated. Converted archives use the asset names from the package, without a generated `pakconv_<hash>` prefix. The temporary package-specific conversion cache is removed after archives are moved, and an original `.pak` is removed only after its converted archives load successfully. Alternate assets are enabled because converted resources use 2Ship's `alt/` asset paths.
 
-Existing installations of this fork's **PAL v1.0.0** can be updated directly to v1.1.0 without uninstalling the app.
+Other `.pak` formats and unsupported package contents are not loadable. Windows builds generate the standalone converter automatically; install `tools/ml64pak_converter/requirements-build.txt` in the Python environment used by CMake, or build it manually with `tools/build_ml64pak_converter.ps1`.
 
-## Android Data Folder
+### Windows build and release cleanup
 
-The app stores extracted resources, settings, saves, and other user files in the selected `2S2H` data folder. You can view or change its location under **Settings > General**, including using an SD card where supported.
+Windows builds keep intermediate libraries, symbols, and the ZAPD tool in the build directory rather than alongside the release executable. Each game build removes generated development files and temporary `.pak` conversion cache from `x64/Release`, while preserving configuration, mods, saves, and other runtime data.
 
-Place mods and user preset files in the relevant directories inside that data folder.
+## Compatibility Notes
 
-## FAQs
-
-### What is different about this fork?
-
-It adds European / PAL 1.1 ROM support and multilingual assets while preserving upstream US / NTSC-U compatibility.
-
-The Android version also includes mobile-friendly menus, improved touch navigation, options for touch controls and menu scaling, and memory-management improvements.
-
-### Why does the Android app still launch the US version?
-
-An existing `mm.o2r` extracted from a US ROM may be reused. Follow the **Switching from an existing US Android installation** instructions above to regenerate it from your PAL 1.1 ROM.
-
-### Why does the game crash immediately?
-
-If the extracted game assets are corrupted, back up or remove `mm.o2r` from the active data folder, then relaunch the app and extract it again from your own supported ROM. Keep your save files and settings.
-
-### My controller is not responding. What should I do?
-
-Open the menu and check **Settings > Controls** to confirm that the controller is detected and mapped.
-
-### Can I hide the on-screen touch controls on Android?
-
-Yes. Tap the **eye icon** in the bottom-right corner of the screen.
-
-### Can I resize the menu on Android?
-
-Yes. Use **Settings > General > Menu Scale**.
+Zelda 64: Recompiled `.nrm` mods are not compatible. They are ZIP-based packages containing a manifest and compiled patches that target Zelda 64: Recompiled's runtime and mod API, not resource archives that 2Ship can mount. Supporting them would require a separate compatible patch runtime or porting each mod to 2Ship.
 
 ## Known Issues
 
+- Texture-pack downloads are supported, but applying Rice, Glide64, or GlideN64 texture packs is not.
 - Near-plane clipping may occur when the camera is very close to walls.
 
-## Credits
+## References and Credits
 
-- [Original 2 Ship 2 Harkinian project](https://github.com/2ship2harkinian/2ship2harkinian)
-- [Original Android port by Waterdish](https://github.com/Waterdish/2ship2harkinian-Android)
-- [Android fork by linkzenic, used as the base for this port](https://github.com/linkzenic/2ship2harkinian-Android)
+- Official upstream project: [2 Ship 2 Harkinian](https://github.com/2ship2harkinian/2ship2harkinian)
+- PAL base: [2Ship2Harkinian PAL](https://github.com/alexbcz/2ship2harkinian-PAL)
+- Multiplayer reference: [2Ship2Harkinian Anchor branch](https://github.com/garrettjoecox/2ship2harkinian/tree/anchor)
+- Graphics reference: [2Ship2Harkinian Graphics Overhaul Project](https://github.com/whitesun046/2ship2harkinian-Graphics-Overhaul-Project)
+- GameBanana: [Majora's Mask mods](https://gamebanana.com/games/20371)
+- ModLoader64: [models and community mods](https://modloader64.com/)
+- Texture-pack catalog: [Emulation King Majora's Mask texture packs](https://emulationking.com/nintendo/n64/games/zeldamajorasmask/texturepacks/)
+- Mod-format reference: [Zelda 64: Recompiled](https://github.com/Zelda64Recomp/Zelda64Recomp) and its [Majora's Mask mod template](https://github.com/Zelda64Recomp/MMRecompModTemplate)
+- `.pak` conversion reference: [ModLoader64 to Ship of Harkinian / 2Ship converter](https://github.com/AgitationSkeleton/soh_modloaderconverter_public)
+
+## AI Assistance Disclosure
+
+Generative AI was used as an assistant for portions of this fork's code changes and documentation. AI-assisted changes should be reviewed and tested by contributors.

@@ -1,5 +1,6 @@
 #include "BenMenu.h"
 #include "BenGui.hpp"
+#include "UiLocalization.h"
 #include "UIWidgets.hpp"
 #include "BenPort.h"
 #include "BenInputEditorWindow.h"
@@ -132,20 +133,8 @@ static void OpenAndroidDataFolderChooser() {
 }
 #endif
 static const std::unordered_map<int32_t, const char*> menuThemeOptions = {
-    { UIWidgets::Colors::Red, "Red" },
-    { UIWidgets::Colors::DarkRed, "Dark Red" },
-    { UIWidgets::Colors::Orange, "Orange" },
-    { UIWidgets::Colors::Green, "Green" },
-    { UIWidgets::Colors::DarkGreen, "Dark Green" },
-    { UIWidgets::Colors::LightBlue, "Light Blue" },
-    { UIWidgets::Colors::Blue, "Blue" },
-    { UIWidgets::Colors::DarkBlue, "Dark Blue" },
-    { UIWidgets::Colors::Indigo, "Indigo" },
-    { UIWidgets::Colors::Violet, "Violet" },
-    { UIWidgets::Colors::Purple, "Purple" },
-    { UIWidgets::Colors::Brown, "Brown" },
-    { UIWidgets::Colors::Gray, "Gray" },
-    { UIWidgets::Colors::DarkGray, "Dark Gray" },
+    { UIWidgets::Colors::OcarinaOfTime, "Ocarina of Time" },
+    { UIWidgets::Colors::MajorasMask, "Majora's Mask" },
 };
 
 static const std::vector<const char*> alwaysWinDoggyraceOptions = {
@@ -449,6 +438,7 @@ std::vector<std::string> contributors = {
 void BenMenu::AddSettings() {
     // Add Settings menu
     AddMenuEntry("Settings", "gSettings.Menu.SettingsSidebarSection");
+    static const std::vector<const char*> uiLanguages = { "English", "Español" };
     // General Settings
 #if defined(__ANDROID__)
     AddSidebarEntry("Settings", "General", 1);
@@ -456,12 +446,15 @@ void BenMenu::AddSettings() {
     AddSidebarEntry("Settings", "General", 2);
 #endif
     WidgetPath path = { "Settings", "General", SECTION_COLUMN_1 };
+    AddWidget(path, "UI Language", WIDGET_CVAR_COMBOBOX)
+        .CVar("gSettings.Menu.Language")
+        .Options(ComboboxOptions().ComboVec(&uiLanguages).DefaultIndex(0));
     AddWidget(path, "Menu Theme", WIDGET_CVAR_COMBOBOX)
         .CVar("gSettings.Menu.Theme")
         .Options(ComboboxOptions()
                      .Tooltip("Changes the Theme of the Menu Widgets.")
                      .ComboMap(&menuThemeOptions)
-                     .DefaultIndex(Colors::LightBlue));
+                     .DefaultIndex(Colors::MajorasMask));
     AddWidget(path, "Menu Background Opacity", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gSettings.Menu.BackgroundOpacity")
         .Options(FloatSliderOptions().DefaultValue(0.85f).IsPercentage().Tooltip(
@@ -750,7 +743,7 @@ void BenMenu::AddSettings() {
             if (mBenMenu->disabledMap.at(DISABLE_FOR_MATCH_REFRESH_RATE_ON).active)
                 info.activeDisables.push_back(DISABLE_FOR_MATCH_REFRESH_RATE_ON);
         })
-        .Options(IntSliderOptions().Min(20).Max(fpsSliderMax).DefaultValue(20).Tooltip(fpsTooltip));
+        .Options(IntSliderOptions().Min(20).Max(fpsSliderMax).DefaultValue(60).Tooltip(fpsTooltip));
     AddWidget(path, "Match Refresh Rate", WIDGET_CVAR_CHECKBOX)
         .CVar("gMatchRefreshRate")
         .Options(CheckboxOptions().Tooltip("Matches interpolation value to the refresh rate of your display."));
@@ -922,11 +915,14 @@ void BenMenu::AddSettings() {
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", path.sidebarName, 2);
     AddWidget(path, "Mod Menu", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Popout Mod Menu Window", WIDGET_WINDOW_BUTTON)
-        .CVar("gWindows.ModMenu")
-        .WindowName("Mod Menu")
-        .HideInSearch(true)
-        .Options(ButtonOptions().Tooltip("Enables the separate Mod Menu Window."));
+    AddWidget(path, "Enable Mods", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Mods.AlternateAssets")
+        .Options(CheckboxOptions().Tooltip(
+                     "Toggle mods. For graphics mods, this means toggling between default and mod graphics.")
+                     .DefaultValue(false));
+    AddWidget(path, "Mods Tab Hotkey", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.Mods.AlternateAssetsHotkey")
+        .Options(CheckboxOptions().Tooltip("Allows pressing the Tab key to toggle mods").DefaultValue(true));
 }
 int32_t motionBlurStrength;
 
@@ -938,8 +934,9 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Fixes", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Fix Targeting Camera Snap", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Camera.FixTargettingCameraSnap")
-        .Options(CheckboxOptions().Tooltip(
-            "Fixes the camera snap that occurs when you are moving and press the targeting button."));
+        .Options(CheckboxOptions()
+                     .Tooltip("Fixes the camera snap that occurs when you are moving and press the targeting button.")
+                     .DefaultValue(true));
     AddWidget(path, "First Person", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Disable Auto-Centering", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Camera.FirstPerson.DisableFirstPersonAutoCenterView")
@@ -947,14 +944,19 @@ void BenMenu::AddEnhancements() {
             if (mBenMenu->disabledMap.at(DISABLE_FOR_GYRO_ON).active)
                 info.activeDisables.push_back(DISABLE_FOR_GYRO_ON);
         })
-        .Options(CheckboxOptions().Tooltip("Disables the auto-centering of the camera in first person mode."));
+        .Options(CheckboxOptions()
+                     .Tooltip("Disables the auto-centering of the camera in first person mode.")
+                     .DefaultValue(true));
     AddWidget(path, "Invert X Axis", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Camera.FirstPerson.InvertX")
-        .Options(CheckboxOptions().Tooltip("Inverts the X Axis of the Camera in First Person Mode."));
+        .Options(CheckboxOptions()
+                     .Tooltip("Inverts the X Axis of the Camera in First Person Mode.")
+                     .DefaultValue(false));
     AddWidget(path, "Invert Y Axis", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Camera.FirstPerson.InvertY")
-        .Options(
-            CheckboxOptions().Tooltip("Inverts the Y Axis of the Camera in First Person Mode.").DefaultValue(true));
+        .Options(CheckboxOptions()
+                     .Tooltip("Inverts the Y Axis of the Camera in First Person Mode.")
+                     .DefaultValue(false));
     AddWidget(path, "X Axis Sensitivity: %.0f%%", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gEnhancements.Camera.FirstPerson.SensitivityX")
         .Options(FloatSliderOptions()
@@ -1048,8 +1050,9 @@ void BenMenu::AddEnhancements() {
                 info.activeDisables.push_back(DISABLE_FOR_DEBUG_CAM_ON);
         })
         .Options(CheckboxOptions().Tooltip(
-            "Enables free look camera control.\nNote: You must remap C buttons off of the right "
-            "stick in the controller config menu, and map the camera stick to the right stick."));
+            "Enables free look camera control. By default, C buttons use the D-Pad and the right stick controls the "
+            "camera; you can change these mappings in the controller config menu.")
+                     .DefaultValue(true));
     AddWidget(path, "Camera Distance: %d", WIDGET_CVAR_SLIDER_INT)
         .CVar("gEnhancements.Camera.FreeLook.MaxCameraDistance")
         .PreFunc([](WidgetInfo& info) { info.isHidden = mBenMenu->disabledMap.at(DISABLE_FOR_FREE_LOOK_OFF).active; })
@@ -1102,7 +1105,7 @@ void BenMenu::AddEnhancements() {
                 info.activeDisables.push_back(DISABLE_FOR_CAMERAS_OFF);
             }
         })
-        .Options(CheckboxOptions().Tooltip("Inverts the Camera Y Axis").DefaultValue(true));
+        .Options(CheckboxOptions().Tooltip("Inverts the Camera Y Axis"));
     AddWidget(path, "Third-Person Camera\nHorizontal Sensitivity: %.0f%%", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gEnhancements.Camera.RightStick.CameraSensitivity.X")
         .PreFunc([](WidgetInfo& info) {
@@ -1562,7 +1565,8 @@ void BenMenu::AddEnhancements() {
     AddWidget(path, "Authentic Logo", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Graphics.AuthenticLogo")
         .Options(CheckboxOptions().Tooltip("Skips the libultraship startup logo and displays the authentic "
-                                           "Nintendo 64 logo."));
+                                           "Nintendo 64 logo.")
+                     .DefaultValue(true));
     AddWidget(path, "Disable Black Bar Letterboxes", WIDGET_CVAR_CHECKBOX)
         .CVar("gEnhancements.Graphics.DisableBlackBars")
         .Options(CheckboxOptions().Tooltip(
@@ -1596,6 +1600,26 @@ void BenMenu::AddEnhancements() {
         .CVar(CVAR_LOW_RES_MODE)
         .Options(CheckboxOptions().Tooltip(
             "Sets the aspect ratio to 4:3 and lowers resolution to 240p, the N64's native resolution."));
+
+    path = { "Enhancements", "Graphics Overhaul Settings", SECTION_COLUMN_1 };
+    AddSidebarEntry("Enhancements", "Graphics Overhaul Settings", 1);
+    AddWidget(path, "Graphics Overhaul", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Average Textures", WIDGET_CVAR_CHECKBOX)
+        .CVar("gCosmetic.Silly.FlatShading")
+        .Options(CheckboxOptions().Tooltip("Applies flat shading to game textures."));
+    AddWidget(path, "Rain Everywhere", WIDGET_CVAR_CHECKBOX)
+        .CVar("gCosmetic.Silly.RainEverywhere")
+        .Options(CheckboxOptions().Tooltip("Enables rain in every outdoor area."));
+    AddWidget(path, "Dull Rupees", WIDGET_CVAR_CHECKBOX)
+        .CVar("gCosmetic.Silly.DullRupees")
+        .Options(CheckboxOptions().Tooltip("Drops the glassy shell that draws over rupees."));
+    AddWidget(path, "Disable Screen Distortion", WIDGET_CVAR_CHECKBOX)
+        .CVar("gEnhancements.A11y.NoScreenDistortion")
+        .Options(CheckboxOptions().Tooltip(
+            "Disables the wobbling/warping of the screen while swimming underwater, and other various sources"));
+    AddWidget(path, "Fix Circle Shadow Streaks", WIDGET_CVAR_CHECKBOX)
+        .CVar("gFixes.FixCircleShadowStreaks")
+        .Options(CheckboxOptions().Tooltip("Fixes faint streaks on round actor shadows").DefaultValue(true));
 
     path = { "Enhancements", "Items/Songs", SECTION_COLUMN_1 };
     AddSidebarEntry("Enhancements", "Items/Songs", 3);
@@ -2345,6 +2369,14 @@ void BenMenu::AddDevTools() {
             "Enables the Gfx Debugger window, allowing you to input commands, type help for some examples."))
         .WindowName("Gfx Debugger");
 
+    path = { "Dev Tools", "Action Debugger", SECTION_COLUMN_1 };
+    AddSidebarEntry("Dev Tools", "Action Debugger", 1);
+    AddWidget(path, "Popout Action Debugger", WIDGET_WINDOW_BUTTON)
+        .CVar("gWindows.ActionDebugger")
+        .Options(ButtonOptions().Tooltip("Enables the Action Debugger window, for firing any registered "
+                                         "GameInteractor action and watching the queue handle it."))
+        .WindowName("Action Debugger");
+
     path = { "Dev Tools", "Hook Debugger", SECTION_COLUMN_1 };
     AddSidebarEntry("Dev Tools", "Hook Debugger", 1);
     AddWidget(path, "Popout Hook Debugger", WIDGET_WINDOW_BUTTON)
@@ -2388,7 +2420,7 @@ void BenMenu::AddDevTools() {
 }
 
 BenMenu::BenMenu(const std::string& consoleVariable, const std::string& name)
-    : Menu(consoleVariable, name, 0, UIWidgets::Colors::LightBlue) {
+    : Menu(consoleVariable, name, 0, UIWidgets::Colors::MajorasMask) {
 }
 
 void BenMenu::InitElement() {
@@ -2419,10 +2451,10 @@ void BenMenu::InitElement() {
           { [](disabledInfo& info) -> bool { return !CVarGetInteger("gEnhancements.Camera.DebugCam.Enable", 0); },
             "Debug Camera is Disabled" } },
         { DISABLE_FOR_FREE_LOOK_ON,
-          { [](disabledInfo& info) -> bool { return CVarGetInteger("gEnhancements.Camera.FreeLook.Enable", 0); },
+          { [](disabledInfo& info) -> bool { return CVarGetInteger("gEnhancements.Camera.FreeLook.Enable", 1); },
             "Free Look is Enabled" } },
         { DISABLE_FOR_FREE_LOOK_OFF,
-          { [](disabledInfo& info) -> bool { return !CVarGetInteger("gEnhancements.Camera.FreeLook.Enable", 0); },
+          { [](disabledInfo& info) -> bool { return !CVarGetInteger("gEnhancements.Camera.FreeLook.Enable", 1); },
             "Free Look is Disabled" } },
         { DISABLE_FOR_GYRO_OFF,
           { [](disabledInfo& info) -> bool {

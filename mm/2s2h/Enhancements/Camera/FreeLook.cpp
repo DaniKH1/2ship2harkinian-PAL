@@ -177,7 +177,7 @@ bool Camera_CanFreeLook(Camera* camera) {
 }
 
 void RegisterCameraFreeLook() {
-    COND_VB_SHOULD(VB_USE_CUSTOM_CAMERA, CVarGetInteger("gEnhancements.Camera.FreeLook.Enable", 0), {
+    COND_VB_SHOULD(VB_USE_CUSTOM_CAMERA, CVarGetInteger("gEnhancements.Camera.FreeLook.Enable", 1), {
         Camera* camera = va_arg(args, Camera*);
         switch (sCameraSettings[camera->setting].cameraModes[camera->mode].funcId) {
             case CAM_FUNC_NORMAL0:
@@ -207,7 +207,7 @@ void RegisterCameraFreeLook() {
         }
     });
 
-    COND_HOOK(OnCameraChangeModeFlags, CVarGetInteger("gEnhancements.Camera.FreeLook.Enable", 0),
+    COND_HOOK(OnCameraChangeModeFlags, CVarGetInteger("gEnhancements.Camera.FreeLook.Enable", 1),
               [](Camera* camera) { UpdateFreeLookState(camera); });
 }
 

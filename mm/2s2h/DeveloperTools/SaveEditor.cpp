@@ -8,6 +8,7 @@
 #include "2s2h/BenGui/Notification.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
 #include "2s2h/ShipUtils.h"
+#include "2s2h/GameInteractor/Actions/Actions.h"
 
 #include "interface/icon_item_dungeon_static/icon_item_dungeon_static.h"
 #include "archives/icon_item_24_static/icon_item_24_static_yar.h"
@@ -1047,52 +1048,52 @@ void DrawItemsAndMasksTab() {
             std::string buttonLabel = "Give ";
             buttonLabel += randoStaticItem.name;
             if (UIWidgets::Button(buttonLabel.c_str())) {
-                GameInteractor::Instance->events.emplace_back(GIEventGiveItem{
-                    .showGetItemCutscene =
-                        Rando::StaticData::ShouldShowGetItemCutscene(Rando::ConvertItem(randoItemId)),
-                    .param = (int16_t)randoItemId,
-                    .giveItem =
-                        [](Actor* actor, PlayState* play) {
-                            RandoItemId randoItemId = Rando::ConvertItem((RandoItemId)CUSTOM_ITEM_PARAM);
-                            std::string prefix = "You found";
-                            std::string message = Rando::StaticData::GetItemName(randoItemId);
+                GameInteractor::Instance->Queue(GIActions::GiveItem(
+                    { .showGetItemCutscene =
+                          Rando::StaticData::ShouldShowGetItemCutscene(Rando::ConvertItem(randoItemId)),
+                      .param = (int16_t)randoItemId,
+                      .giveItem =
+                          [](Actor* actor, PlayState* play) {
+                              RandoItemId randoItemId = Rando::ConvertItem((RandoItemId)CUSTOM_ITEM_PARAM);
+                              std::string prefix = "You found";
+                              std::string message = Rando::StaticData::GetItemName(randoItemId);
 
-                            CustomMessage::Entry entry = {
-                                .textboxType = 2,
-                                .icon = Rando::StaticData::GetIconForZMessage(randoItemId),
-                                .msg = prefix + " " + message + "!",
-                            };
+                              CustomMessage::Entry entry = {
+                                  .textboxType = 2,
+                                  .icon = Rando::StaticData::GetIconForZMessage(randoItemId),
+                                  .msg = prefix + " " + message + "!",
+                              };
 
-                            if (CUSTOM_ITEM_FLAGS & CustomItem::GIVE_ITEM_CUTSCENE) {
-                                CustomMessage::SetActiveCustomMessage(entry.msg, entry);
-                            } else if (Rando::StaticData::ShouldShowGetItemCutscene(
-                                           Rando::ConvertItem((RandoItemId)CUSTOM_ITEM_PARAM))) {
-                                CustomMessage::StartTextbox(entry.msg + "\x1C\x02\x10", entry);
-                            } else {
-                                Notification::Emit({
-                                    .itemIcon = Rando::StaticData::GetIconTexturePath(randoItemId),
-                                    .message = prefix,
-                                    .suffix = message,
-                                });
-                            }
-                            Rando::GiveItem(randoItemId);
-                            CUSTOM_ITEM_PARAM = randoItemId;
-                        },
-                    .drawItem =
-                        [](Actor* actor, PlayState* play) {
-                            RandoItemId randoItemId;
+                              if (CUSTOM_ITEM_FLAGS & CustomItem::GIVE_ITEM_CUTSCENE) {
+                                  CustomMessage::SetActiveCustomMessage(entry.msg, entry);
+                              } else if (Rando::StaticData::ShouldShowGetItemCutscene(
+                                             Rando::ConvertItem((RandoItemId)CUSTOM_ITEM_PARAM))) {
+                                  CustomMessage::StartTextbox(entry.msg + "\x1C\x02\x10", entry);
+                              } else {
+                                  Notification::Emit({
+                                      .itemIcon = Rando::StaticData::GetIconTexturePath(randoItemId),
+                                      .message = prefix,
+                                      .suffix = message,
+                                  });
+                              }
+                              Rando::GiveItem(randoItemId);
+                              CUSTOM_ITEM_PARAM = randoItemId;
+                          },
+                      .drawItem =
+                          [](Actor* actor, PlayState* play) {
+                              RandoItemId randoItemId;
 
-                            // If the item has been given, the CUSTOM_ITEM_PARAM is set to the RI, prior to that it's
-                            // the RC
-                            if (CUSTOM_ITEM_FLAGS & CustomItem::CALLED_ACTION) {
-                                randoItemId = (RandoItemId)CUSTOM_ITEM_PARAM;
-                            } else {
-                                randoItemId = Rando::ConvertItem((RandoItemId)CUSTOM_ITEM_PARAM);
-                            }
+                              // If the item has been given, the CUSTOM_ITEM_PARAM is set to the RI, prior to that it's
+                              // the RC
+                              if (CUSTOM_ITEM_FLAGS & CustomItem::CALLED_ACTION) {
+                                  randoItemId = (RandoItemId)CUSTOM_ITEM_PARAM;
+                              } else {
+                                  randoItemId = Rando::ConvertItem((RandoItemId)CUSTOM_ITEM_PARAM);
+                              }
 
-                            Matrix_Scale(30.0f, 30.0f, 30.0f, MTXMODE_APPLY);
-                            Rando::DrawItem(randoItemId, RC_UNKNOWN, actor);
-                        } });
+                              Matrix_Scale(30.0f, 30.0f, 30.0f, MTXMODE_APPLY);
+                              Rando::DrawItem(randoItemId, RC_UNKNOWN, actor);
+                          } }));
             }
         }
     }
@@ -1551,7 +1552,7 @@ void DrawDungeonItemTab() {
         // Sliders are usable in-line on Android: avoid two tiny popup editors
         // and four one-line children with their own scrollbars.
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 6.0f));
-        UIWidgets::PushStyleSlider(UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", 5)));
+        UIWidgets::PushStyleSlider(UIWidgets::GetMenuThemeColor());
         int currentStrays = gSaveContext.save.saveInfo.inventory.strayFairies[dungeonId];
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         if (ImGui::SliderInt("##StrayFairiesMobile", &currentStrays, 0, 15, "Stray Fairies: %d")) {
@@ -1568,7 +1569,7 @@ void DrawDungeonItemTab() {
         ImGui::Spacing();
 #else
         if (ImGui::BeginPopup("strayFairies")) {
-            UIWidgets::PushStyleSlider(UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", 5)));
+            UIWidgets::PushStyleSlider(UIWidgets::GetMenuThemeColor());
             s32 minStray = 0;
             s32 maxStray = 15;
             int currentStrays = gSaveContext.save.saveInfo.inventory.strayFairies[dungeonId];
@@ -1582,7 +1583,7 @@ void DrawDungeonItemTab() {
             ImGui::EndPopup();
         }
         if (ImGui::BeginPopup("smallKeys")) {
-            UIWidgets::PushStyleSlider(UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", 5)));
+            UIWidgets::PushStyleSlider(UIWidgets::GetMenuThemeColor());
             s32 minKey = -1;
             s32 maxKey = smallKeyCounts[dungeonId];
             int currentKeys = gSaveContext.save.saveInfo.inventory.dungeonKeys[dungeonId];
@@ -2756,7 +2757,7 @@ void SaveEditorWindow::DrawElement() {
     // Keep the section selector anchored at the top of the integrated menu.
     // The content below scrolls inside its own child when necessary.
     ImGui::SetScrollY(0.0f);
-    UIWidgets::PushStyleCombobox(UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", 5)));
+    UIWidgets::PushStyleCombobox(UIWidgets::GetMenuThemeColor());
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
     if (ImGui::BeginCombo("##SaveEditorSection", sections[selectedSection])) {
         for (int i = 0; i < sectionCount; ++i) {
@@ -2799,7 +2800,7 @@ void SaveEditorWindow::DrawElement() {
         ImGui::EndChild();
     }
 #else
-    UIWidgets::PushStyleTabs(UIWidgets::Colors(CVarGetInteger("gSettings.Menu.Theme", 5)));
+    UIWidgets::PushStyleTabs(UIWidgets::GetMenuThemeColor());
     if (ImGui::BeginTabBar("SaveContextTabBar", ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)) {
         if (ImGui::BeginTabItem("General")) {
             DrawGeneralTab();

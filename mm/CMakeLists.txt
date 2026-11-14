@@ -113,6 +113,11 @@ endif()
 
 list(FILTER ship__ EXCLUDE REGEX "2s2h/Extractor/*")
 
+option(SKIP_NETWORKING "Skip networking support (Sail remote control), avoiding the SDL2_net 2.2.0 dependency" OFF)
+if (SKIP_NETWORKING)
+    list(FILTER ship__ EXCLUDE REGEX "2s2h/Network/*")
+endif()
+
 if(NOT CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|CafeOS")
     file(GLOB_RECURSE ship__Extractor RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
         "2s2h/Extractor/*.c"
@@ -233,8 +238,8 @@ if (NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
 endif()
 set(SDL2-INCLUDE ${SDL2_INCLUDE_DIRS})
 
-if (BUILD_CROWD_CONTROL)
-    find_package(SDL2_net)
+if (NOT SKIP_NETWORKING)
+    find_package(SDL2_net 2.2.0 REQUIRED)
     set(SDL2-NET-INCLUDE ${SDL_NET_INCLUDE_DIRS})
 endif()
 
@@ -263,9 +268,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 		"$<$<CONFIG:Release>:"
 			"NDEBUG;"
 		">"
-           #"$<$<BOOL:${BUILD_CROWD_CONTROL}>:ENABLE_CROWD_CONTROL>"
 		"INCLUDE_GAME_PRINTF;"
-           #"ENABLE_CROWD_CONTROL;"
 		"F3DEX_GBI_2"
 		"UNICODE;"
 		"_UNICODE"
@@ -299,7 +302,6 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU|Clang|AppleClang")
 			"NDEBUG;"
 		">"
         "F3DEX_GBI_2;"
-		# "$<$<BOOL:${BUILD_CROWD_CONTROL}>:ENABLE_CROWD_CONTROL>"
 		"_CONSOLE;"
 		"_CRT_SECURE_NO_WARNINGS;"
 		"ENABLE_OPENGL;"
@@ -562,6 +564,24 @@ if(NOT CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|CafeOS|Android")
         COMMAND ${VS_COPY_ASSETS_CMD}
     )
 endif()
+if(WIN32)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E rm -f
+            "$<TARGET_FILE_DIR:2ship>/2ship.exp"
+            "$<TARGET_FILE_DIR:2ship>/2ship.lib"
+            "$<TARGET_FILE_DIR:2ship>/2ship.pdb"
+            "$<TARGET_FILE_DIR:2ship>/libultraship.lib"
+            "$<TARGET_FILE_DIR:2ship>/OTRExporter.lib"
+            "$<TARGET_FILE_DIR:2ship>/ZAPDLib.lib"
+            "$<TARGET_FILE_DIR:2ship>/ZAPD.exe"
+        COMMAND "${CMAKE_COMMAND}" -E rm -rf "$<TARGET_FILE_DIR:2ship>/pak_cache"
+        COMMAND "${CMAKE_COMMAND}" -E rm -f "$<TARGET_FILE_DIR:2ship>/textures/2ship_startup_mask.png"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:2ship>/tools"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${ML64_CONVERTER_EXE}" "$<TARGET_FILE_DIR:2ship>/tools/ML64PakConverter.exe"
+        COMMENT "Cleaning generated development files from the release folder..."
+        VERBATIM)
+endif()
 ################################################################################
 # Dependencies
 ################################################################################
@@ -576,6 +596,7 @@ endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     find_package(glfw3 REQUIRED)
+    find_package(WebP CONFIG REQUIRED)
 
     find_package(Ogg CONFIG REQUIRED)
     link_libraries(Ogg::ogg)
@@ -593,12 +614,14 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 		"glu32;"
 		"SDL2::SDL2;"
 		"SDL2::SDL2main;"
-        #"$<$<BOOL:${BUILD_CROWD_CONTROL}>:SDL2_net::SDL2_net-static>"
+        "$<$<NOT:$<BOOL:${SKIP_NETWORKING}>>:SDL2_net::SDL2_net-static>"
 		"glfw;"
 		"winmm;"
 		"imm32;"
 		"version;"
 		"setupapi;"
+		"winhttp;"
+        "WebP::webpdecoder"
         "Ogg::ogg"
         "Opus::opus"
         "Vorbis::vorbis"
@@ -695,7 +718,7 @@ else()
         "Opus::opus"
         "Opusfile::Opusfile"
 		SDL2::SDL2
- #       "$<$<BOOL:${BUILD_CROWD_CONTROL}>:SDL2_net::SDL2_net>"
+        "$<$<NOT:$<BOOL:${SKIP_NETWORKING}>>:SDL2_net::SDL2_net>"
 		${CMAKE_DL_LIBS}
 		Threads::Threads
 	)
@@ -707,7 +730,6 @@ INSTALL(TARGETS 2ship DESTINATION . COMPONENT 2s2h)
 endif()
 
 if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
-INSTALL(FILES $<TARGET_PDB_FILE:2ship> DESTINATION ./debug COMPONENT 2s2h)
 INSTALL(FILES ${CMAKE_BINARY_DIR}/mm/2ship.o2r DESTINATION . COMPONENT 2s2h)
 endif()
 

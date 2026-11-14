@@ -30,6 +30,8 @@ OSTime sGraphPrevUpdateEndTime;
 #include "z_title_setup.h"
 #include "BenPort.h"
 
+extern bool BenGui_IsStartupMenuActive(void);
+
 void Graph_StartFrame();
 void Graph_ProcessGfxCommands(Gfx* commands);
 void Graph_ProcessFrame(void (*run_one_game_iter)(void));
@@ -242,6 +244,10 @@ retry:
 }
 
 void Graph_UpdateGame(GameState* gameState) {
+    if (BenGui_IsStartupMenuActive()) {
+        return;
+    }
+
     GameState_GetInput(gameState);
     GameState_IncrementFrameCount(gameState);
     // BENTODO

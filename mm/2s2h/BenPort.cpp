@@ -5,6 +5,8 @@
 #include <fstream>
 #include <chrono>
 #include <cstdlib>
+#include <mutex>
+#include <unordered_set>
 
 #include <ship/resource/ResourceManager.h>
 #include <fast/Fast3dWindow.h>
@@ -42,11 +44,10 @@
 // OTRTODO
 // #include <functions.h>
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
+#include "2s2h/Enhancements/ModMenu/ModCatalog.h"
 
-#ifdef ENABLE_CROWD_CONTROL
-#include "Enhancements/crowd-control/CrowdControl.h"
-CrowdControl* CrowdControl::Instance;
-#endif
+#include "2s2h/Network/Sail/Sail.h"
+#include "2s2h/Network/Anchor/Anchor.h"
 
 #include <libultraship/libultraship.h>
 #include <libultraship/controller/controldeck/ControlDeck.h>
@@ -130,6 +131,8 @@ extern "C" void Android_SetDataRootPath(const char* path) {
 OTRGlobals* OTRGlobals::Instance;
 GameInteractor* GameInteractor::Instance;
 AudioCollection* AudioCollection::Instance;
+Sail* Sail::Instance;
+Anchor* Anchor::Instance;
 
 extern "C" char** cameraStrings;
 bool prevAltAssets = false;
@@ -202,6 +205,7 @@ OTRGlobals::OTRGlobals() {
         fontStandard = CreateFontWithSize(16.0f, "fonts/Montserrat-Regular.ttf");
         fontStandardLarger = CreateFontWithSize(20.0f, "fonts/Montserrat-Regular.ttf");
         fontStandardLargest = CreateFontWithSize(24.0f, "fonts/Montserrat-Regular.ttf");
+        fontTriforce = CreateFontWithSize(72.0f, "fonts/Triforce.ttf");
         ImGui::GetIO().FontDefault = fontStandardLarger;
     }
 
@@ -565,8 +569,7 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
         }
         // Process window events for resize, mouse, keyboard events
         wnd->HandleEvents();
-        UIWidgets::Colors themeColor =
-            static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue));
+        UIWidgets::Colors themeColor = UIWidgets::GetMenuThemeColor();
         ImGui::PushStyleColor(ImGuiCol_TitleBgActive, UIWidgets::ColorValues.at(themeColor));
         ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, UIWidgets::ColorValues.at(UIWidgets::Colors::DarkGray));
 
@@ -849,9 +852,9 @@ uint32_t OTRGlobals::GetInterpolationFPS() {
     } else if (CVarGetInteger(CVAR_VSYNC_ENABLED, 1) ||
                !Ship::Context::GetRawInstance()->GetWindow()->CanDisableVerticalSync()) {
         return std::min<uint32_t>(Ship::Context::GetRawInstance()->GetWindow()->GetCurrentRefreshRate(),
-                                  CVarGetInteger("gInterpolationFPS", 20));
+                                  CVarGetInteger("gInterpolationFPS", 60));
     }
-    return CVarGetInteger("gInterpolationFPS", 20);
+    return CVarGetInteger("gInterpolationFPS", 60);
 }
 
 extern "C" void OTRMessage_Init();
@@ -1034,6 +1037,9 @@ extern "C" void InitOTR(int argc, char* argv[]) {
 
     GameInteractor::Instance = new GameInteractor();
     AudioCollection::Instance = new AudioCollection();
+    Sail::Instance = new Sail();
+    Anchor::Instance = new Anchor();
+
     LoadGuiTextures();
     ModMenu_LoadArchives();
     BenGui::SetupGuiElements();
@@ -1064,15 +1070,13 @@ extern "C" void InitOTR(int argc, char* argv[]) {
     }
 
     srand(now);
-#ifdef ENABLE_CROWD_CONTROL
-    CrowdControl::Instance = new CrowdControl();
-    CrowdControl::Instance->Init();
-    if (CVarGetInteger("gCrowdControl", 0)) {
-        CrowdControl::Instance->Enable();
-    } else {
-        CrowdControl::Instance->Disable();
+    SDLNet_Init();
+    if (CVarGetInteger("gNetwork.Sail.Enabled", 0)) {
+        Sail::Instance->Enable();
     }
-#endif
+    if (CVarGetInteger("gNetwork.Anchor.Enabled", 0)) {
+        Anchor::Instance->Enable();
+    }
 
     Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(BinarySaveConverter_HandleFileDropped);
     Ship::Context::GetRawInstance()->GetFileDropMgr()->RegisterDropHandler(SaveManager_HandleFileDropped);
@@ -1083,12 +1087,13 @@ extern "C" void SaveManager_ThreadPoolWait() {
 }
 
 extern "C" void DeinitOTR() {
+    ModCatalog::Shutdown(std::filesystem::path(Ship::Context::LocateFileAcrossAppDirs("mods", appShortName)));
     SaveManager_ThreadPoolWait();
     OTRAudio_Exit();
-#ifdef ENABLE_CROWD_CONTROL
-    CrowdControl::Instance->Disable();
-    CrowdControl::Instance->Shutdown();
-#endif
+    GameInteractor::Instance->CancelAllActions();
+    Sail::Instance->Disable();
+    Anchor::Instance->Disable();
+    SDLNet_Quit();
 
     // Destroying gui here because we have shared ptrs to LUS objects which output to SPDLOG which is destroyed before
     // these shared ptrs.
@@ -1266,8 +1271,7 @@ void RunCommands(Gfx* Commands, int time, int step, int denom, int count) {
     auto intp = wnd->GetInterpreterWeak().lock().get();
     intp->mInterpolationIndex = 0;
 
-    UIWidgets::Colors themeColor =
-        static_cast<UIWidgets::Colors>(CVarGetInteger("gSettings.Menu.Theme", UIWidgets::Colors::LightBlue));
+    UIWidgets::Colors themeColor = UIWidgets::GetMenuThemeColor();
     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, UIWidgets::ColorValues.at(themeColor));
     for (int i = 0; i < count; i++) {
         time += step;
@@ -1577,9 +1581,29 @@ extern "C" void ResourceMgr_PushCurrentDirectory(char* path) {
 }
 
 extern "C" Gfx* ResourceMgr_LoadGfxByName(const char* path) {
+    static Gfx emptyDisplayList[] = { gsSPEndDisplayList() };
+    if (path == nullptr) {
+        SPDLOG_ERROR("Cannot load a display list with a null resource path; skipping draw.");
+        return emptyDisplayList;
+    }
+
     ResourceMgr_PreloadAltWhenItExists(path);
 
-    auto res = std::static_pointer_cast<Fast::DisplayList>(GetResourceByName(path));
+    auto res = std::dynamic_pointer_cast<Fast::DisplayList>(GetResourceByName(path));
+    if (res == nullptr || res->Instructions.empty()) {
+        static std::mutex reportedPathsMutex;
+        static std::unordered_set<std::string> reportedPaths;
+        bool shouldReport = false;
+        {
+            std::lock_guard<std::mutex> lock(reportedPathsMutex);
+            shouldReport = reportedPaths.insert(path).second;
+        }
+        if (shouldReport) {
+            SPDLOG_ERROR("Cannot load display list '{}': resource is missing or empty; skipping draw.", path);
+        }
+        return emptyDisplayList;
+    }
+
     return (Gfx*)&res->Instructions[0];
 }
 

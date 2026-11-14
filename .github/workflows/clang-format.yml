@@ -5,16 +5,12 @@ concurrency:
   cancel-in-progress: true
 jobs:
   clang-format:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 2
-      - name: Install clang-format
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format-14
       - name: Run clang-format
         run: |
-          ./run-clang-format.sh
+          .\run-clang-format.ps1
           git diff --exit-code

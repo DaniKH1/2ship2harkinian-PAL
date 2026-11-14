@@ -20,6 +20,8 @@
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 #pragma code_page(1252)
 
+STARTUP_MASK RCDATA "..\\assets\\custom\\textures\\2ship_startup_mask.png"
+
 #ifdef APSTUDIO_INVOKED
 /////////////////////////////////////////////////////////////////////////////
 //

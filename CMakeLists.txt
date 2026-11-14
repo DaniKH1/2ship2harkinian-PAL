@@ -3,9 +3,11 @@ cmake_minimum_required(VERSION 3.26.0 FATAL_ERROR)
 set(CMAKE_SYSTEM_VERSION 10.0 CACHE STRING "" FORCE)
 set(CMAKE_CXX_STANDARD 20 CACHE STRING "The C++ standard to use")
 
-set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "Minimum OS X deployment version")
 set(GAME_STR "MM")
 project(2s2h VERSION 5.0.1 LANGUAGES C CXX)
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    message(FATAL_ERROR "This fork supports Windows builds only.")
+endif()
 include(CMake/2ship-cvars.cmake)
 include(CMake/lus-cvars.cmake)
 set(SPDLOG_LEVEL_TRACE 0)
@@ -59,12 +61,6 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     endif()
 endif()
 
-if (CMAKE_SYSTEM_NAME MATCHES "Windows|Linux")
-    if(NOT DEFINED BUILD_CROWD_CONTROL)
-        set(BUILD_CROWD_CONTROL OFF)
-    endif()
-endif()
-
 # Enable the Gfx debugger in LUS to use libgfxd from ZAPDTR
 set(GFX_DEBUG_DISASSEMBLER ON)
 
@@ -85,8 +81,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     endif()
     message("${CMAKE_VS_PLATFORM_NAME} architecture in use")
 
-    if(NOT ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64"
-        OR "${CMAKE_VS_PLATFORM_NAME}" STREQUAL "Win32"))
+    if(NOT "${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
         message(FATAL_ERROR "${CMAKE_VS_PLATFORM_NAME} arch is not supported!")
     endif()
 endif()
@@ -97,13 +92,8 @@ endif()
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 include(CMake/automate-vcpkg.cmake)
 
-if ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "Win32")
-	set(VCPKG_TRIPLET x86-windows-static)
-	set(VCPKG_TARGET_TRIPLET x86-windows-static)
-elseif ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
-	set(VCPKG_TRIPLET x64-windows-static)
-	set(VCPKG_TARGET_TRIPLET x64-windows-static)
-endif()
+set(VCPKG_TRIPLET x64-windows-static)
+set(VCPKG_TARGET_TRIPLET x64-windows-static)
 
 vcpkg_bootstrap()
 vcpkg_install_packages(zlib bzip2 libzip libpng sdl2 sdl2-net glew glfw3 nlohmann-json tinyxml2 spdlog libogg libvorbis opus opusfile)
@@ -112,21 +102,12 @@ endif()
 ################################################################################
 # Global configuration types
 ################################################################################
-if (CMAKE_SYSTEM_NAME MATCHES "NintendoSwitch|Android")
-    set(CMAKE_C_FLAGS_DEBUG "-g -ffast-math -DDEBUG")
-    set(CMAKE_CXX_FLAGS_DEBUG "-g -ffast-math -DDEBUG")
-    set(CMAKE_C_FLAGS_RELEASE "-O3 -ffast-math -DNDEBUG")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -ffast-math -DNDEBUG")
-elseif(MSVC)
+if(MSVC)
     # We need to remove RTC1 as it is not compatible with O2, which we set for some files in DEBUG
     string(REGEX REPLACE "/RTC(su|[1su])" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
     string(REGEX REPLACE "/RTC(su|[1su])" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
     set(CMAKE_C_FLAGS_RELEASE "/O2 /DNDEBUG")
     set(CMAKE_CXX_FLAGS_RELEASE "/O2 /DNDEBUG")
-else()
-    set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
-    set(CMAKE_OBJCXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 endif()
 
 if(NOT CMAKE_BUILD_TYPE )
@@ -138,17 +119,17 @@ endif()
 ################################################################################
 include(CMake/Utils.cmake)
 
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    get_linux_lsb_release_information()
-    message(STATUS "Linux ${LSB_RELEASE_ID_SHORT} ${LSB_RELEASE_VERSION_SHORT} ${LSB_RELEASE_CODENAME_SHORT}")
-else()
-    message(STATUS ${CMAKE_SYSTEM_NAME})
-endif()
+message(STATUS "Windows x64")
 
 ################################################################################
 # Additional Global Settings(add specific info there)
 ################################################################################
 include(CMake/GlobalSettingsInclude.cmake OPTIONAL)
+
+if(WIN32)
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/build-artifacts/lib")
+    set(CMAKE_PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/build-artifacts/pdb")
+endif()
 
 ################################################################################
 # Use solution folders feature
@@ -183,57 +164,47 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|AppleClang|GNU|MSVC")
     endif()
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Android" AND DEFINED ANDROID_VCPKG_ROOT)
-    if(ANDROID_ABI STREQUAL "arm64-v8a")
-        set(ANDROID_VCPKG_TRIPLET "arm64-android")
-    elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
-        set(ANDROID_VCPKG_TRIPLET "arm-neon-android")
-    elseif(ANDROID_ABI STREQUAL "x86")
-        set(ANDROID_VCPKG_TRIPLET "x86-android")
-    elseif(ANDROID_ABI STREQUAL "x86_64")
-        set(ANDROID_VCPKG_TRIPLET "x64-android")
-    endif()
-
-    if(ANDROID_VCPKG_TRIPLET)
-        set(ANDROID_VCPKG_PREFIX "${ANDROID_VCPKG_ROOT}/installed/${ANDROID_VCPKG_TRIPLET}")
-        list(PREPEND CMAKE_PREFIX_PATH "${ANDROID_VCPKG_PREFIX}")
-        set(PNG_DIR "${ANDROID_VCPKG_PREFIX}/share/png")
-        find_package(PNG CONFIG REQUIRED)
-        if(TARGET PNG::PNG AND NOT TARGET png)
-            add_library(png ALIAS PNG::PNG)
-        endif()
-    endif()
-endif()
 add_subdirectory(ZAPDTR/ZAPD ${CMAKE_BINARY_DIR}/ZAPD)
+set_target_properties(ZAPD PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/build-artifacts/bin")
 add_subdirectory(OTRExporter)
-add_subdirectory(mm)
-
-set_property(TARGET 2ship PROPERTY APPIMAGE_DESKTOP_FILE_TERMINAL YES)
-set_property(TARGET 2ship PROPERTY APPIMAGE_DESKTOP_FILE "${CMAKE_SOURCE_DIR}/mm/linux/2s2h.desktop")
-set_property(TARGET 2ship PROPERTY APPIMAGE_ICON_FILE "${CMAKE_BINARY_DIR}/2s2hIcon.png")
-
-if("${CMAKE_SYSTEM_NAME}" STREQUAL "Linux")
-install(FILES "${CMAKE_BINARY_DIR}/mm/2ship.o2r" DESTINATION . COMPONENT ship)
-install(TARGETS ZAPD DESTINATION ./assets/extractor COMPONENT extractor)
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets/extractor COMPONENT extractor)
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml COMPONENT extractor)
+if(WIN32)
+    set(ML64_CONVERTER_EXE "${CMAKE_BINARY_DIR}/pak_converter/ML64PakConverter.exe")
 endif()
+add_subdirectory(mm)
+set_target_properties(libultraship OTRExporter ZAPDLib PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/build-artifacts/lib")
 
-if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets/extractor COMPONENT 2s2h)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml COMPONENT 2s2h)
-endif()
-
-if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Android")
-file(COPY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/extractor")
-file(COPY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/xml")
-file(COPY "${CMAKE_SOURCE_DIR}/OTRExporter/CFG/ActorList_MM.txt" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/extractor/symbols")
-file(COPY "${CMAKE_SOURCE_DIR}/OTRExporter/CFG/ObjectList_MM.txt" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/extractor/symbols")
-file(COPY "${CMAKE_SOURCE_DIR}/OTRExporter/CFG/SymbolMap_MM.txt" DESTINATION "${CMAKE_SOURCE_DIR}/Android/app/src/main/assets/assets/extractor/symbols")
-endif()
 
 
 find_package(Python3 COMPONENTS Interpreter)
+
+if(WIN32)
+    if(NOT Python3_Interpreter_FOUND)
+        message(FATAL_ERROR "Python 3 is required to build the ModLoader64 .pak converter.")
+    endif()
+
+    file(GLOB_RECURSE ML64_CONVERTER_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/tools/ml64pak_converter/*.py"
+        "${CMAKE_SOURCE_DIR}/tools/ml64pak_converter/*.txt"
+        "${CMAKE_SOURCE_DIR}/tools/ml64pak_converter/*.md")
+    add_custom_command(
+        OUTPUT "${ML64_CONVERTER_EXE}"
+        COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_SOURCE_DIR}/tools/build_ml64pak_converter.ps1"
+            -OutputPath "${ML64_CONVERTER_EXE}"
+        DEPENDS
+            ${ML64_CONVERTER_SOURCES}
+            "${CMAKE_SOURCE_DIR}/tools/build_ml64pak_converter.ps1"
+        COMMENT "Building the ModLoader64 .pak converter..."
+        VERBATIM)
+    add_custom_target(BuildML64PakConverter
+        DEPENDS "${ML64_CONVERTER_EXE}"
+        COMMENT "Building the ModLoader64 converter...")
+    add_dependencies(2ship BuildML64PakConverter)
+endif()
 
 # Target to generate OTRs
 add_custom_target(
@@ -269,60 +240,18 @@ add_custom_target(
     DEPENDS ZAPD
 )
 
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-file(COPY ${CMAKE_SOURCE_DIR}/mm/linux/2s2hIcon.png DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+install(FILES ${CMAKE_SOURCE_DIR}/README.md DESTINATION . COMPONENT 2s2h)
+if(WIN32)
+    install(FILES
+        "${ML64_CONVERTER_EXE}"
+        "${CMAKE_SOURCE_DIR}/tools/ml64pak_converter/UPSTREAM-LICENSE"
+        "${CMAKE_SOURCE_DIR}/tools/ml64pak_converter/NOTICE.md"
+        DESTINATION tools COMPONENT 2s2h)
 endif()
-
-if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
-add_custom_target(CreateOSXIcons
-   COMMAND mkdir -p ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset
-   COMMAND sips -z 16 16     mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_16x16.png
-   COMMAND sips -z 32 32     mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_16x16@2x.png
-   COMMAND sips -z 32 32     mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_32x32.png
-   COMMAND sips -z 64 64     mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_32x32@2x.png
-   COMMAND sips -z 128 128   mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_128x128.png
-   COMMAND sips -z 256 256   mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_128x128@2x.png
-   COMMAND sips -z 256 256   mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_256x256.png
-   COMMAND sips -z 512 512   mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_256x256@2x.png
-   COMMAND sips -z 512 512   mm/macosx/2s2hIcon.png --out ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_512x512.png
-   COMMAND cp                mm/macosx/2s2hIcon.png ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset/icon_512x512@2x.png
-   COMMAND iconutil -c icns -o ${CMAKE_BINARY_DIR}/macosx/2s2h.icns ${CMAKE_BINARY_DIR}/macosx/2s2h.iconset
-   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-   COMMENT "Creating OSX icons ..."
-   )
-add_dependencies(2ship CreateOSXIcons)
-
-install(TARGETS ZAPD DESTINATION ${CMAKE_BINARY_DIR}/assets/extractor)
-
-set(PROGRAM_PERMISSIONS_EXECUTE OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ WORLD_EXECUTE WORLD_READ)
-
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/extractor/" DESTINATION ./assets/extractor)
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/mm/assets/xml/" DESTINATION ./assets/xml)
-
-# Rename the installed soh binary to drop the macos suffix
-INSTALL(CODE "FILE(RENAME \${CMAKE_INSTALL_PREFIX}/../MacOS/2s2h-macos \${CMAKE_INSTALL_PREFIX}/../MacOS/2s2h)")
-install(CODE "
-   include(BundleUtilities)
-  fixup_bundle(\"\${CMAKE_INSTALL_PREFIX}/../MacOS/2s2h\" \"\" \"${dirs}\")
-   ")
-
-endif()
-
-if(CMAKE_SYSTEM_NAME MATCHES "Windows|NintendoSwitch|CafeOS")
-install(FILES ${CMAKE_SOURCE_DIR}/README.md DESTINATION . COMPONENT 2s2h RENAME readme.txt )
 install(CODE "file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/mods\")" COMPONENT 2s2h)
 install(CODE "file(TOUCH \"\${CMAKE_INSTALL_PREFIX}/mods/custom_mod_files_go_here.txt\")" COMPONENT 2s2h)
-endif()
 
-if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-    set(CPACK_GENERATOR "External")
-elseif(CMAKE_SYSTEM_NAME MATCHES "Windows|NintendoSwitch|CafeOS")
-    set(CPACK_GENERATOR "ZIP")
-elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
-    set(CPACK_GENERATOR "Bundle")
-endif()
+set(CPACK_GENERATOR "ZIP")
 
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
-    set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/CMake/Packaging-2.cmake)
-    include(CMake/Packaging.cmake)
-endif()
+set(CPACK_PROJECT_CONFIG_FILE ${CMAKE_SOURCE_DIR}/CMake/Packaging-2.cmake)
+include(CMake/Packaging.cmake)
