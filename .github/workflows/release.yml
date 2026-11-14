@@ -24,7 +24,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          submodules: true
+          submodules: false
+
+      - name: Checkout this fork's pinned build dependencies
+        shell: pwsh
+        run: |
+          Write-Host "Building $env:GITHUB_REPOSITORY at $(git rev-parse HEAD)"
+          git submodule sync --recursive
+          if ($LASTEXITCODE -ne 0) { throw "Could not sync this fork's submodule URLs." }
+          git submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not fetch a pinned dependency. Check the gitlink commit and URL in this fork."
+          }
+          $status = @(git submodule status --recursive)
+          if ($LASTEXITCODE -ne 0) { throw "Could not verify the checked-out dependencies." }
+          $status | ForEach-Object { Write-Host $_ }
+          if ($status | Where-Object { $_ -match '^[+-U]' }) {
+            throw "A dependency is not checked out at the exact commit pinned by this fork."
+          }
 
       - uses: actions/setup-python@v6
         with:
