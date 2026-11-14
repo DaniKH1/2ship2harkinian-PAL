@@ -1,0 +1,180 @@
+diff --git a/cmake/dependencies/windows-vcpkg.cmake b/cmake/dependencies/windows-vcpkg.cmake
+index 4f6465bc..a8760125 100644
+--- a/cmake/dependencies/windows-vcpkg.cmake
++++ b/cmake/dependencies/windows-vcpkg.cmake
+@@ -13,5 +13,5 @@ elseif ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "arm64")
+ endif()
+ 
+ 	vcpkg_bootstrap()
+-	vcpkg_install_packages(zlib bzip2 sdl2 glew libzip nlohmann-json tinyxml2 spdlog)    
++	vcpkg_install_packages(zlib bzip2 sdl2 glew libzip libwebp nlohmann-json tinyxml2 spdlog)
+ endif()
+diff --git a/include/fast/Fast3dGui.h b/include/fast/Fast3dGui.h
+index 80d02317..cc48289c 100644
+--- a/include/fast/Fast3dGui.h
++++ b/include/fast/Fast3dGui.h
+@@ -1,6 +1,9 @@
+ #pragma once
+ #include <SDL2/SDL.h>
+ 
++#include <cstddef>
++#include <cstdint>
++
+ #include "Fast3dWindow.h"
+ #include "ship/window/gui/Gui.h"
+ #include "fast/WindowEvent.h"
+@@ -130,6 +133,7 @@ class Fast3dGui : public Ship::Gui {
+      * @param path Absolute filesystem path to the image file (e.g. a PNG).
+      */
+     void LoadTextureFromRawImage(const std::string& name, const std::string& path);
++    void LoadTextureFromEncodedImage(const std::string& name, const uint8_t* imageData, size_t imageDataSize);
+ 
+     /**
+      * @brief Uploads a pre-loaded GuiTexture resource to the GPU and caches it.
+@@ -163,6 +167,8 @@ class Fast3dGui : public Ship::Gui {
+     GuiWindowInitData mImpl;                 ///< Backend-specific window/context handles passed to Init().
+ 
+   private:
++    void LoadTextureFromDecodedImage(const std::string& name, uint8_t* pixels, int width, int height);
++
+     /** @brief Applies any pending resolution or MSAA changes to the render target. */
+     void ApplyResolutionChanges();
+ 
+diff --git a/src/fast/Fast3dGui.cpp b/src/fast/Fast3dGui.cpp
+index 237a502a..bae9190e 100644
+--- a/src/fast/Fast3dGui.cpp
++++ b/src/fast/Fast3dGui.cpp
+@@ -9,6 +9,9 @@
+ #include "fast/resource/type/Texture.h"
+ #include "ship/window/gui/resource/GuiTextureFactory.h"
+ #include "ship/resource/File.h"
++#include "spdlog/spdlog.h"
++
++#include <limits>
+ 
+ #ifdef __APPLE__
+ #include <SDL_hints.h>
+@@ -552,19 +555,70 @@ ImVec2 Fast3dGui::GetTextureSize(const std::string& name) {
+ }
+ 
+ void Fast3dGui::LoadTextureFromRawImage(const std::string& name, const std::string& path) {
+-    auto initData = std::make_shared<Ship::ResourceInitData>();
+-    initData->Format = RESOURCE_FORMAT_BINARY;
+-    initData->Type = static_cast<uint32_t>(RESOURCE_TYPE_GUI_TEXTURE);
+-    initData->ResourceVersion = 0;
+-    initData->Path = path;
+-    auto guiTexture = std::static_pointer_cast<Ship::GuiTexture>(
+-        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(path, false, initData));
++    int width = 0;
++    int height = 0;
++    int channels = 0;
++    uint8_t* pixels = stbi_load(path.c_str(), &width, &height, &channels, 4);
++    if (pixels == nullptr || width <= 0 || height <= 0) {
++        if (pixels != nullptr) {
++            stbi_image_free(pixels);
++        }
++        SPDLOG_WARN("Could not decode GUI texture {}: {}", path, stbi_failure_reason());
++        return;
++    }
++
++    LoadTextureFromDecodedImage(name, pixels, width, height);
++}
++
++void Fast3dGui::LoadTextureFromEncodedImage(const std::string& name, const uint8_t* imageData, size_t imageDataSize) {
++    if (imageData == nullptr || imageDataSize == 0 ||
++        imageDataSize > static_cast<size_t>(std::numeric_limits<int>::max())) {
++        SPDLOG_WARN("Could not decode GUI texture {}: invalid encoded image data", name);
++        return;
++    }
++
++    int width = 0;
++    int height = 0;
++    int channels = 0;
++    uint8_t* pixels = stbi_load_from_memory(imageData, static_cast<int>(imageDataSize), &width, &height, &channels, 4);
++    if (pixels == nullptr || width <= 0 || height <= 0) {
++        if (pixels != nullptr) {
++            stbi_image_free(pixels);
++        }
++        SPDLOG_WARN("Could not decode GUI texture {}: {}", name, stbi_failure_reason());
++        return;
++    }
++
++    LoadTextureFromDecodedImage(name, pixels, width, height);
++}
++
++void Fast3dGui::LoadTextureFromDecodedImage(const std::string& name, uint8_t* pixels, int width, int height) {
++    auto guiTexture = std::make_shared<Ship::GuiTexture>();
++    guiTexture->Data = pixels;
++    guiTexture->DataSize = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
++    guiTexture->Metadata.Width = width;
++    guiTexture->Metadata.Height = height;
+ 
+     LoadTextureFromResource(name, guiTexture);
+ }
+ 
+ void Fast3dGui::LoadTextureFromResource(const std::string& name, std::shared_ptr<Ship::GuiTexture> texture) {
+-    GfxRenderingAPI* api = mInterpreter.lock()->GetCurrentRenderingAPI();
++    if (texture == nullptr || texture->Data == nullptr || texture->Metadata.Width <= 0 ||
++        texture->Metadata.Height <= 0) {
++        SPDLOG_WARN("Skipping invalid GUI texture {}", name);
++        return;
++    }
++
++    const auto interpreter = mInterpreter.lock();
++    if (interpreter == nullptr) {
++        SPDLOG_WARN("Could not load GUI texture {} because the graphics interpreter is unavailable", name);
++        return;
++    }
++    GfxRenderingAPI* api = interpreter->GetCurrentRenderingAPI();
++    if (api == nullptr) {
++        SPDLOG_WARN("Could not load GUI texture {} because the rendering API is unavailable", name);
++        return;
++    }
+ 
+     // TODO: Nothing ever unloads the texture from Fast3D here.
+     texture->Metadata.RendererTextureId = api->NewTexture();
+diff --git a/src/fast/interpreter.cpp b/src/fast/interpreter.cpp
+index ef4e6f1d..4b94d902 100644
+--- a/src/fast/interpreter.cpp
++++ b/src/fast/interpreter.cpp
+@@ -12,7 +12,10 @@
+ #endif
+ 
+ #include <any>
++#include <algorithm>
+ #include <chrono>
++#include <limits>
++#include <memory>
+ #include <map>
+ #include <set>
+ #include <unordered_map>
+diff --git a/src/libultraship/controller/controldevice/controller/mapping/ControllerDefaultMappings.cpp b/src/libultraship/controller/controldevice/controller/mapping/ControllerDefaultMappings.cpp
+index c431c346..0f238d30 100644
+--- a/src/libultraship/controller/controldevice/controller/mapping/ControllerDefaultMappings.cpp
++++ b/src/libultraship/controller/controldevice/controller/mapping/ControllerDefaultMappings.cpp
+@@ -76,10 +76,10 @@ void ControllerDefaultMappings::SetDefaultSDLButtonToButtonMappings(
+         { BTN_B, { SDL_CONTROLLER_BUTTON_B } },
+         { BTN_L, { SDL_CONTROLLER_BUTTON_LEFTSHOULDER } },
+         { BTN_START, { SDL_CONTROLLER_BUTTON_START } },
+-        { BTN_DUP, { SDL_CONTROLLER_BUTTON_DPAD_UP } },
+-        { BTN_DDOWN, { SDL_CONTROLLER_BUTTON_DPAD_DOWN } },
+-        { BTN_DLEFT, { SDL_CONTROLLER_BUTTON_DPAD_LEFT } },
+-        { BTN_DRIGHT, { SDL_CONTROLLER_BUTTON_DPAD_RIGHT } },
++        { BTN_CUP, { SDL_CONTROLLER_BUTTON_DPAD_UP } },
++        { BTN_CDOWN, { SDL_CONTROLLER_BUTTON_DPAD_DOWN } },
++        { BTN_CLEFT, { SDL_CONTROLLER_BUTTON_DPAD_LEFT } },
++        { BTN_CRIGHT, { SDL_CONTROLLER_BUTTON_DPAD_RIGHT } },
+     });
+ }
+ 
+@@ -95,10 +95,6 @@ void ControllerDefaultMappings::SetDefaultSDLAxisDirectionToButtonMappings(
+     Ship::ControllerDefaultMappings::SetDefaultSDLAxisDirectionToButtonMappings({
+         { BTN_R, { { SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 1 } } },
+         { BTN_Z, { { SDL_CONTROLLER_AXIS_TRIGGERLEFT, 1 } } },
+-        { BTN_CUP, { { SDL_CONTROLLER_AXIS_RIGHTY, -1 } } },
+-        { BTN_CDOWN, { { SDL_CONTROLLER_AXIS_RIGHTY, 1 } } },
+-        { BTN_CLEFT, { { SDL_CONTROLLER_AXIS_RIGHTX, -1 } } },
+-        { BTN_CRIGHT, { { SDL_CONTROLLER_AXIS_RIGHTX, 1 } } },
+     });
+ }
+ } // namespace LUS

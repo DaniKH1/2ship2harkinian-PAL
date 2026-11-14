@@ -74,6 +74,10 @@ jobs:
       - name: Configure Developer Command Prompt
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Apply PAL libultraship changes
+        shell: pwsh
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\apply_libultraship_patch.ps1
+
       - name: Build and package Windows release
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
