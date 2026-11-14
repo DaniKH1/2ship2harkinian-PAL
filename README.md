@@ -70,6 +70,8 @@ Other `.pak` formats and unsupported package contents are not loadable. Windows 
 
 Windows builds keep intermediate libraries, symbols, and the ZAPD tool in the build directory rather than alongside the release executable. Each game build removes generated development files and temporary `.pak` conversion cache from `x64/Release`, while preserving configuration, mods, saves, and other runtime data.
 
+To publish a Windows release, run **Actions > Manual Windows Release > Run workflow** on the commit to release. The workflow builds and validates the distributable ZIP, then publishes it as a GitHub Release after approval. Set up a GitHub environment named `release` with required reviewers under **Settings > Environments** to enable that approval gate. You can provide a tag beginning with `v` (for example, `v1.0.0`); leaving it blank creates a date-based tag.
+
 ## Compatibility Notes
 
 Zelda 64: Recompiled `.nrm` mods are not compatible. They are ZIP-based packages containing a manifest and compiled patches that target Zelda 64: Recompiled's runtime and mod API, not resource archives that 2Ship can mount. Supporting them would require a separate compatible patch runtime or porting each mod to 2Ship.

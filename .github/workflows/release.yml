@@ -1,0 +1,171 @@
+name: Manual Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag. Leave empty to use v<today's date>."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows release package
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: tools/ml64pak_converter/requirements-build.txt
+
+      - name: Validate release tag
+        if: ${{ inputs.tag != '' }}
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: pwsh
+        run: |
+          if (-not $env:RELEASE_TAG.StartsWith('v')) {
+            throw "Release tags must start with 'v', for example v1.0.0."
+          }
+
+      - name: Install build dependencies
+        run: |
+          choco install ninja -y
+          Remove-Item -Path "C:\ProgramData\Chocolatey\bin\ccache.exe" -Force -ErrorAction SilentlyContinue
+          python -m pip install --upgrade pip
+          python -m pip install -r tools/ml64pak_converter/requirements-build.txt
+
+      - name: Configure sccache
+        uses: hendrikmuhs/ccache-action@v1.2.22
+        with:
+          variant: sccache
+          max-size: "2G"
+          evict-old-files: job
+          save: ${{ github.ref_name == github.event.repository.default_branch }}
+          key: ${{ runner.os }}-ccache-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-${{ github.ref }}
+            ${{ runner.os }}-ccache
+
+      - name: Restore cached VCPKG folder
+        id: restore-cache-vcpkg
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{ runner.os }}-vcpkg-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-${{ github.ref }}-
+            ${{ runner.os }}-vcpkg-
+          path: vcpkg
+
+      - name: Configure Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build and package Windows release
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:USERPROFILE/.cargo/bin;$env:PATH"
+          cmake -S . -B build-windows -G Ninja -DCMAKE_MAKE_PROGRAM=ninja -DCMAKE_BUILD_TYPE:STRING=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed." }
+          cmake --build build-windows --target Generate2ShipOtr --config Release --parallel 10
+          if ($LASTEXITCODE -ne 0) { throw "Asset generation failed." }
+          cmake --build build-windows --config Release --parallel 10
+          if ($LASTEXITCODE -ne 0) { throw "Windows build failed." }
+          Push-Location build-windows
+          try {
+            cpack
+            if ($LASTEXITCODE -ne 0) { throw "CPack packaging failed." }
+          } finally {
+            Pop-Location
+          }
+
+          $packages = @(Get-ChildItem .\_packages -Filter *.zip -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected one generated ZIP package, found $($packages.Count)."
+          }
+          $releaseZip = Join-Path (Resolve-Path .\_packages) "2ship-windows.zip"
+          Move-Item -LiteralPath $packages[0].FullName -Destination $releaseZip
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($releaseZip)
+          try {
+            $entries = @($archive.Entries | ForEach-Object FullName)
+            foreach ($requiredFile in @("2ship.exe", "2ship.o2r", "tools/ML64PakConverter.exe")) {
+              if ($entries -notcontains $requiredFile) {
+                throw "Release package is missing $requiredFile."
+              }
+            }
+            if ((Get-Item -LiteralPath $releaseZip).Length -lt 10MB) {
+              throw "Release package is unexpectedly small."
+            }
+          } finally {
+            $archive.Dispose()
+          }
+          Write-Host "Release package ready: $releaseZip"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: 2ship-windows
+          path: _packages/2ship-windows.zip
+          if-no-files-found: error
+
+      - name: Save VCPKG cache
+        if: ${{ github.ref_name == github.event.repository.default_branch }}
+        uses: actions/cache/save@v5
+        with:
+          key: ${{ steps.restore-cache-vcpkg.outputs.cache-primary-key }}
+          path: vcpkg
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: ${{ steps.publish.outputs.url }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: 2ship-windows
+          path: release-assets
+
+      - name: Choose release tag
+        id: tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: pwsh
+        run: |
+          $tag = "$env:RELEASE_TAG".Trim()
+          if (-not $tag) {
+            $tag = "v$(Get-Date -Format 'yyyy.M.d')"
+          }
+          if (-not $tag.StartsWith('v')) {
+            throw "Release tags must start with 'v', for example v1.0.0."
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Publish release
+        id: publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          files: release-assets/2ship-windows.zip
+          generate_release_notes: true
