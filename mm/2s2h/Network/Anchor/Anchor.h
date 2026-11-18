@@ -54,6 +54,13 @@ typedef struct {
     int16_t unk_ACC;
     int8_t invincibilityTimer;
 
+    // Instrument state (only populated while a transformation instrument is being played)
+    uint8_t instrumentAnim; // 0 = none, 1 = start, 2 = play, 3 = wait (Goron only)
+    float curFrame;
+    int16_t unk_B8A;
+    int16_t unk_B86[2];
+    float unk_B10[5];
+
     // Ptr to the dummy player
     Player* player;
 } AnchorClient;

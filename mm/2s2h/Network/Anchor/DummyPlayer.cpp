@@ -59,6 +59,28 @@ static DamageTable DummyPlayerDamageTable = {
     /* Powder Keg     */ DMG_ENTRY(1, DUMMY_PLAYER_HIT_RESPONSE_NORMAL),
 };
 
+// Returns the instrument animation for the given form, matching what the real Player would be playing.
+// Goron drums / Zora guitar / Deku pipes are only drawn while skelAnime.animation is one of these.
+static void* DummyPlayer_GetInstrumentAnim(uint8_t form, uint8_t anim) {
+    switch (form) {
+        case PLAYER_FORM_GORON:
+            return anim == 1   ? (void*)&gPlayerAnim_pg_gakkistart
+                   : anim == 2 ? (void*)&gPlayerAnim_pg_gakkiplay
+                   : anim == 3 ? (void*)&gPlayerAnim_pg_gakkiwait
+                               : nullptr;
+        case PLAYER_FORM_ZORA:
+            return anim == 1   ? (void*)&gPlayerAnim_pz_gakkistart
+                   : anim == 2 ? (void*)&gPlayerAnim_pz_gakkiplay
+                               : nullptr;
+        case PLAYER_FORM_DEKU:
+            return anim == 1   ? (void*)&gPlayerAnim_pn_gakkistart
+                   : anim == 2 ? (void*)&gPlayerAnim_pn_gakkiplay
+                               : nullptr;
+        default:
+            return nullptr;
+    }
+}
+
 // Modeled after EnTest3_Init and Player_Init
 void DummyPlayer_Init(Actor* actor, PlayState* play) {
     Player* player = (Player*)actor;
@@ -147,6 +169,19 @@ void DummyPlayer_Update(Actor* actor, PlayState* play) {
     player->unk_B28 = client.unk_B28;
     player->unk_ACC = client.unk_ACC;
     player->invincibilityTimer = client.invincibilityTimer;
+
+    // Instruments (Goron drums, Zora guitar, Deku pipes)
+    void* instrumentAnim = DummyPlayer_GetInstrumentAnim(client.transformation, client.instrumentAnim);
+    if (instrumentAnim != nullptr) {
+        player->skelAnime.animation = instrumentAnim;
+        player->skelAnime.curFrame = client.curFrame;
+        player->unk_B8A = client.unk_B8A;
+        player->unk_B86[0] = client.unk_B86[0];
+        player->unk_B86[1] = client.unk_B86[1];
+        memcpy(player->unk_B10, client.unk_B10, sizeof(client.unk_B10));
+    } else {
+        player->skelAnime.animation = Player_GetIdleAnim(player);
+    }
 
     PlayerItemAction modelItemAction =
         (PlayerItemAction)(player->itemAction > PLAYER_IA_MINUS1 ? player->itemAction : player->heldItemAction);

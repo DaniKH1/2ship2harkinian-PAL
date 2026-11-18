@@ -6,7 +6,40 @@
 extern "C" {
 #include "macros.h"
 #include "variables.h"
+#include "objects/gameplay_keep/gameplay_keep.h"
 extern PlayState* gPlayState;
+}
+
+// Goron drums / Zora guitar / Deku pipes are drawn by z_player_lib.c only while skelAnime.animation matches the
+// instrument animations, so the remote dummy needs to know which one is active.
+// 0 = none, 1 = start, 2 = play, 3 = wait (Goron only)
+static uint8_t GetInstrumentAnim(Player* player) {
+    void* anim = player->skelAnime.animation;
+    switch (player->transformation) {
+        case PLAYER_FORM_GORON:
+            if (BEN_ANIM_EQUAL(anim, gPlayerAnim_pg_gakkistart))
+                return 1;
+            if (BEN_ANIM_EQUAL(anim, gPlayerAnim_pg_gakkiplay))
+                return 2;
+            if (BEN_ANIM_EQUAL(anim, gPlayerAnim_pg_gakkiwait))
+                return 3;
+            break;
+        case PLAYER_FORM_ZORA:
+            if (BEN_ANIM_EQUAL(anim, gPlayerAnim_pz_gakkistart))
+                return 1;
+            if (BEN_ANIM_EQUAL(anim, gPlayerAnim_pz_gakkiplay))
+                return 2;
+            break;
+        case PLAYER_FORM_DEKU:
+            if (BEN_ANIM_EQUAL(anim, gPlayerAnim_pn_gakkistart))
+                return 1;
+            if (BEN_ANIM_EQUAL(anim, gPlayerAnim_pn_gakkiplay))
+                return 2;
+            break;
+        default:
+            break;
+    }
+    return 0;
 }
 
 /**
@@ -63,6 +96,16 @@ void Anchor::SendPacket_PlayerUpdate() {
     payload["invincibilityTimer"] = player->invincibilityTimer;
     payload["quiet"] = true;
 
+    // Only add the instrument data while an instrument is active, this packet is sent every frame
+    uint8_t instrumentAnim = GetInstrumentAnim(player);
+    if (instrumentAnim != 0) {
+        payload["instrumentAnim"] = instrumentAnim;
+        payload["curFrame"] = player->skelAnime.curFrame;
+        payload["unk_B8A"] = player->unk_B8A;
+        payload["unk_B86"] = std::vector<int16_t>(player->unk_B86, player->unk_B86 + 2);
+        payload["unk_B10"] = std::vector<float>(player->unk_B10, player->unk_B10 + 5);
+    }
+
     for (auto& [clientId, client] : clients) {
         if (client.sceneId == gPlayState->sceneId && client.online && client.isSaveLoaded && !client.self) {
             payload["targetClientId"] = clientId;
@@ -110,5 +153,18 @@ void Anchor::HandlePacket_PlayerUpdate(nlohmann::json payload) {
         client.unk_B28 = payload.value("unk_B28", (int16_t)0);
         client.unk_ACC = payload.value("unk_ACC", (int16_t)0);
         client.invincibilityTimer = payload.value("invincibilityTimer", (int8_t)0);
+
+        // Absent from the payload when no instrument is active, so these reset to 0/none
+        client.instrumentAnim = payload.value("instrumentAnim", (uint8_t)0);
+        client.curFrame = payload.value("curFrame", 0.0f);
+        client.unk_B8A = payload.value("unk_B8A", (int16_t)0);
+        std::vector<int16_t> unkB86 = payload.value("unk_B86", std::vector<int16_t>{});
+        std::vector<float> unkB10 = payload.value("unk_B10", std::vector<float>{});
+        for (int i = 0; i < 2; i++) {
+            client.unk_B86[i] = i < (int)unkB86.size() ? unkB86[i] : 0;
+        }
+        for (int i = 0; i < 5; i++) {
+            client.unk_B10[i] = i < (int)unkB10.size() ? unkB10[i] : 0.0f;
+        }
     }
 }
