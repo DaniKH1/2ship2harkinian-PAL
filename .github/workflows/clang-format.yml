@@ -1,0 +1,16 @@
+name: clang-format
+on: [pull_request]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  clang-format:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Run clang-format
+        run: |
+          .\run-clang-format.ps1
+          git diff --exit-code
