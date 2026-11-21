@@ -60,6 +60,12 @@ Searches and thumbnail loading run asynchronously, with thumbnail aspect ratios 
 
 Texture packs are downloaded separately into `mods/Texture Packs` and retained as ZIP files. Rice, Glide64 `.dat`, and GlideN64 `.htc` options are offered for download only; **this build does not apply those texture-pack formats**.
 
+### Recent fixes and changes
+
+- **Disabled mods no longer apply when loading a save:** the mod manager now drops disabled mods from the active load order and unloads their archives when a save is loaded, so a disabled model (for example a 3DS Malon player-model mod) no longer replaces Link. The updated enabled/disabled lists are persisted so a restart keeps the mod disabled.
+- **The mods menu inside Settings (Ajustes) now displays correctly:** the **Enable Mods** checkbox on the **Menú de mods** page of the Settings menu is no longer force-disabled while the menu is open.
+- **Smaller stray-fairy marker:** the pulsing Glowing Circle marker on the dungeon map (the stray-fairy marker) is now half the original size.
+
 ### ModLoader64 and Z64Online packages
 
 Supported ModLoader64 / Z64Online `.pak` player-model and equipment mods are converted to `.o2r` when you select **Start Game**. Conversion is limited to content targeting Majora's Mask; OoT-only assets are not generated. Converted archives use the asset names from the package, without a generated `pakconv_<hash>` prefix. The temporary package-specific conversion cache is removed after archives are moved, and an original `.pak` is removed only after its converted archives load successfully. Alternate assets are enabled because converted resources use 2Ship's `alt/` asset paths.
