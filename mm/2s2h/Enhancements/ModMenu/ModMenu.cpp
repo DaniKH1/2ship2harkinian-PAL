@@ -217,7 +217,8 @@ bool IsValidExtension(std::string extension) {
 #endif
         // .zip needs to be excluded because mods are most often distributed in zip archives
         // and thus could contain .otr/o2r files
-        StringHelper::IEquals(extension, ".o2r") || StringHelper::IEquals(extension, ".pak")) {
+        StringHelper::IEquals(extension, ".o2r") || StringHelper::IEquals(extension, ".o2rdisabled") ||
+        StringHelper::IEquals(extension, ".pak")) {
         return true;
     }
     return false;
@@ -437,7 +438,15 @@ void UpdateModFiles(bool init = false, bool reset = false) {
 
 extern "C" void gfx_texture_cache_clear();
 
+static bool RenameModArchiveForStateChange(const std::string& file, const std::string& currentExtension,
+                                           const std::string& targetExtension, std::string& newFile);
+
 void EnableMod(std::string file) {
+    // Rename the archive from ".o2rdisabled" back to ".o2r" and use the new file id.
+    std::string renamedFile;
+    if (RenameModArchiveForStateChange(file, ".o2rdisabled", ".o2r", renamedFile)) {
+        file = renamedFile;
+    }
     if (auto it = std::find(disabledModFiles.begin(), disabledModFiles.end(), file); it != disabledModFiles.end()) {
         disabledModFiles.erase(it);
     }
@@ -445,25 +454,74 @@ void EnableMod(std::string file) {
         // Newly activated mods go straight to the top of the load order (highest priority)
         enabledModFiles.push_back(file);
     }
+    if (!renamedFile.empty()) {
+        SetEnabledModsCVarValue();
+    }
 
     // TODO: runtime changes
     // GetArchiveManager()->AddArchive(file);
     AfterModChange();
 }
 
+// Renames the mod archive for `file` to `targetExtension` and updates the `filePaths` key.
+// `currentExtension` must match the current extension of the file. Returns true and sets
+// `newFile` to the new file id when the rename succeeded.
+static bool RenameModArchiveForStateChange(const std::string& file, const std::string& currentExtension,
+                                           const std::string& targetExtension, std::string& newFile) {
+    newFile.clear();
+    const auto pathIt = filePaths.find(file);
+    if (pathIt == filePaths.end() || pathIt->second.extension() != currentExtension) {
+        return false;
+    }
+    const std::filesystem::path newPath =
+        pathIt->second.parent_path() / (pathIt->second.stem().generic_string() + targetExtension);
+    std::error_code ec;
+    if (std::filesystem::exists(newPath, ec) || ec) {
+        return false;
+    }
+    std::filesystem::rename(pathIt->second, newPath, ec);
+    if (ec) {
+        SPDLOG_WARN("Could not rename mod archive {} to {}: {}", pathIt->second.string(), newPath.string(),
+                    ec.message());
+        return false;
+    }
+    std::filesystem::path relative = std::filesystem::relative(newPath, modsDirectory, ec);
+    if (ec || relative.empty()) {
+        relative = newPath;
+    }
+    newFile = relative.lexically_normal().generic_string();
+    filePaths.erase(file);
+    filePaths[newFile] = newPath;
+    return true;
+}
+
 void DisableMod(std::string file) {
+    // Capture the archive key before renaming the file on disk.
+    std::string archiveKey;
+    const auto pathIt = filePaths.find(file);
+    if (pathIt != filePaths.end()) {
+        archiveKey = pathIt->second.lexically_normal().generic_string();
+    }
+
+    // Rename the archive from ".o2r" to ".o2rdisabled" and use the new file id.
+    std::string renamedFile;
+    if (RenameModArchiveForStateChange(file, ".o2r", ".o2rdisabled", renamedFile)) {
+        file = renamedFile;
+    }
+
     if (auto it = std::find(enabledModFiles.begin(), enabledModFiles.end(), file); it != enabledModFiles.end()) {
         enabledModFiles.erase(it);
     }
     if (std::find(disabledModFiles.begin(), disabledModFiles.end(), file) == disabledModFiles.end()) {
         disabledModFiles.insert(disabledModFiles.begin(), file);
     }
+    if (!renamedFile.empty()) {
+        SetEnabledModsCVarValue();
+    }
 
     // ABSOLUTE RULE: a disabled mod never loads in the game — unload it immediately.
     const auto archiveManager = GetArchiveManager();
-    const auto pathIt = filePaths.find(file);
-    if (pathIt != filePaths.end() && archiveManager != nullptr) {
-        const std::string archiveKey = pathIt->second.lexically_normal().generic_string();
+    if (archiveManager != nullptr && !archiveKey.empty()) {
         loadedModArchives.erase(archiveKey);
         archiveManager->RemoveArchive(archiveKey);
     }
