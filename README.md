@@ -66,6 +66,23 @@ Texture packs are downloaded separately into `mods/Texture Packs` and retained a
 - **The mods menu inside Settings (Ajustes) now displays correctly:** the **Enable Mods** checkbox on the **Menú de mods** page of the Settings menu is no longer force-disabled while the menu is open.
 - **Smaller stray-fairy marker:** the pulsing Glowing Circle marker on the dungeon map (the stray-fairy marker) is now half the original size.
 
+### Multiplayer and minor additions
+
+- Kamaro and Bremen masks SFX plays for the local player if the remote player is using them.
+- Instrument animations are synced between the remote and local player.
+- Reworked Anchor menu.
+- New **Skin Selector** category on the **Network** tab.
+- More priority options on the mod menu.
+- Kamaro and Bremen masks SFX radius can be modified on a new settings category under the **Network** tab.
+- **Skin Selector** limited: you can choose to play as Link or Kafei (custom skins can also be used through the regular mods menu).
+- Remote Player position marked on the minimap.
+- Stray Fairies can now be tracked on the minimap while wearing the Great Fairy's mask.
+
+### Not yet fixed
+
+- Synced Epona is not fixed yet.
+- Link animations from the Remote Player while playing single notes on the instruments are not synced for the Local player yet.
+
 ### ModLoader64 and Z64Online packages
 
 Supported ModLoader64 / Z64Online `.pak` player-model and equipment mods are converted to `.o2r` when you select **Start Game**. Conversion is limited to content targeting Majora's Mask; OoT-only assets are not generated. Converted archives use the asset names from the package, without a generated `pakconv_<hash>` prefix. The temporary package-specific conversion cache is removed after archives are moved, and an original `.pak` is removed only after its converted archives load successfully. Alternate assets are enabled because converted resources use 2Ship's `alt/` asset paths.
