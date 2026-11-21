@@ -459,8 +459,21 @@ void DisableMod(std::string file) {
         disabledModFiles.insert(disabledModFiles.begin(), file);
     }
 
-    // TODO: runtime changes
-    // GetArchiveManager()->RemoveArchive(file);
+    // ABSOLUTE RULE: a disabled mod never loads in the game — unload it immediately.
+    const auto archiveManager = GetArchiveManager();
+    const auto pathIt = filePaths.find(file);
+    if (pathIt != filePaths.end() && archiveManager != nullptr) {
+        const std::string archiveKey = pathIt->second.lexically_normal().generic_string();
+        loadedModArchives.erase(archiveKey);
+        archiveManager->RemoveArchive(archiveKey);
+    }
+    // Restore the vanilla Link skeleton so the mod stops applying to the player.
+    ApplySkinToResource(0);
+    if (gPlayState != nullptr) {
+        if (Player* player = GET_PLAYER(gPlayState)) {
+            gPlayState->playerInit(player, gPlayState, gPlayerSkeletons[player->transformation]);
+        }
+    }
     AfterModChange();
 }
 
@@ -491,6 +504,8 @@ static void ModMenu_OnSaveLoad() {
     // Persist the updated enabled/disabled lists so a restart keeps the mod disabled.
     SetEnabledModsCVarValue();
 
+    // Restore the vanilla Link skeleton so disabled mods stop applying to the player.
+    ApplySkinToResource(0);
     // Re-init the player so the current skeleton is used on save load.
     if (gPlayState != nullptr) {
         if (Player* player = GET_PLAYER(gPlayState)) {
@@ -2145,6 +2160,10 @@ bool ModMenu_StartGame(std::string& error) {
         return archivePath != filePaths.end() && IsTexturePackArchive(archivePath->second);
     });
     for (const std::string& mod : modLoadOrder) {
+        // ABSOLUTE RULE: a disabled mod never loads, even if the enabled list is out of sync.
+        if (std::find(disabledModFiles.begin(), disabledModFiles.end(), mod) != disabledModFiles.end()) {
+            continue;
+        }
         const auto archivePath = filePaths.find(mod);
         if (archivePath == filePaths.end()) {
             SPDLOG_WARN("Skipping enabled mod {} because its archive was not found", mod);
