@@ -442,14 +442,14 @@ static bool RenameModArchiveForStateChange(const std::string& file, const std::s
                                            const std::string& targetExtension, std::string& newFile);
 
 void EnableMod(std::string file) {
+    const std::string oldFile = file;
     // Rename the archive from ".o2rdisabled" back to ".o2r" and use the new file id.
     std::string renamedFile;
     if (RenameModArchiveForStateChange(file, ".o2rdisabled", ".o2r", renamedFile)) {
         file = renamedFile;
     }
-    if (auto it = std::find(disabledModFiles.begin(), disabledModFiles.end(), file); it != disabledModFiles.end()) {
-        disabledModFiles.erase(it);
-    }
+    std::erase(disabledModFiles, oldFile);
+    std::erase(disabledModFiles, file);
     if (std::find(enabledModFiles.begin(), enabledModFiles.end(), file) == enabledModFiles.end()) {
         // Newly activated mods go straight to the top of the load order (highest priority)
         enabledModFiles.push_back(file);
@@ -502,6 +502,7 @@ void DisableMod(std::string file) {
     if (pathIt != filePaths.end()) {
         archiveKey = pathIt->second.lexically_normal().generic_string();
     }
+    const std::string oldFile = file;
 
     // Rename the archive from ".o2r" to ".o2rdisabled" and use the new file id.
     std::string renamedFile;
@@ -509,9 +510,8 @@ void DisableMod(std::string file) {
         file = renamedFile;
     }
 
-    if (auto it = std::find(enabledModFiles.begin(), enabledModFiles.end(), file); it != enabledModFiles.end()) {
-        enabledModFiles.erase(it);
-    }
+    std::erase(enabledModFiles, oldFile);
+    std::erase(enabledModFiles, file);
     if (std::find(disabledModFiles.begin(), disabledModFiles.end(), file) == disabledModFiles.end()) {
         disabledModFiles.insert(disabledModFiles.begin(), file);
     }
@@ -525,6 +525,9 @@ void DisableMod(std::string file) {
         loadedModArchives.erase(archiveKey);
         archiveManager->RemoveArchive(archiveKey);
     }
+    // Drop the skin cache if it contains this mod's files (it was generated while
+    // the mod was mounted and would keep serving them).
+    SkinCache::Unload();
     // Restore the vanilla Link skeleton so the mod stops applying to the player.
     ApplySkinToResource(0);
     if (gPlayState != nullptr) {
@@ -562,6 +565,8 @@ static void ModMenu_OnSaveLoad() {
     // Persist the updated enabled/disabled lists so a restart keeps the mod disabled.
     SetEnabledModsCVarValue();
 
+    // Drop the skin cache if it contains disabled mod files.
+    SkinCache::Unload();
     // Restore the vanilla Link skeleton so disabled mods stop applying to the player.
     ApplySkinToResource(0);
     // Re-init the player so the current skeleton is used on save load.
