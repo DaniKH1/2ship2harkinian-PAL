@@ -66,6 +66,7 @@ mm/libultraship/extern/StrHash64.dir/Debug/StrHash64.tlog/Lib.command.1.tlog
 .vs/*
 /x64
 /vcpkg
+.opencode/
 
 _packages/
 
