@@ -250,15 +250,15 @@ void KaleidoScope_DrawDungeonMap(PlayState* play) {
                     MATRIX_FINALIZE_AND_LOAD(POLY_OPA_DISP++, play->state.gfxCtx);
 
                     // QUAD_MAP_PAGE_DUNGEON_STRAY_FAIRY_GLOWING_CIRCLE
-                    pauseCtx->mapPageVtx[76].v.ob[0] = pauseCtx->mapPageVtx[78].v.ob[0] = -16;
+                    pauseCtx->mapPageVtx[76].v.ob[0] = pauseCtx->mapPageVtx[78].v.ob[0] = -8;
 
                     pauseCtx->mapPageVtx[77].v.ob[0] = pauseCtx->mapPageVtx[79].v.ob[0] =
-                        pauseCtx->mapPageVtx[76].v.ob[0] + 32;
+                        pauseCtx->mapPageVtx[76].v.ob[0] + 16;
 
-                    pauseCtx->mapPageVtx[76].v.ob[1] = pauseCtx->mapPageVtx[77].v.ob[1] = 12;
+                    pauseCtx->mapPageVtx[76].v.ob[1] = pauseCtx->mapPageVtx[77].v.ob[1] = 6;
 
                     pauseCtx->mapPageVtx[78].v.ob[1] = pauseCtx->mapPageVtx[79].v.ob[1] =
-                        pauseCtx->mapPageVtx[76].v.ob[1] - 24;
+                        pauseCtx->mapPageVtx[76].v.ob[1] - 12;
 
                     gSPVertex(POLY_OPA_DISP++,
                               &pauseCtx->mapPageVtx[QUAD_MAP_PAGE_DUNGEON_STRAY_FAIRY_GLOWING_CIRCLE * 4], 4, 0);

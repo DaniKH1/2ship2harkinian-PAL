@@ -8341,6 +8341,7 @@ void func_80839978(PlayState* play, Player* this) {
         this->stateFlags3 |= PLAYER_STATE3_20000000;
         this->unk_B48 = this->speedXZ;
         Audio_PlayFanfare(NA_BGM_BREMEN_MARCH);
+        GameInteractor_ExecuteOnPlayerFanfare(NA_BGM_BREMEN_MARCH);
     }
 }
 
@@ -8351,6 +8352,7 @@ void func_80839A10(PlayState* play, Player* this) {
         Player_Anim_PlayLoopAdjusted(play, this, &gPlayerAnim_alink_dance_loop);
         this->stateFlags2 |= PLAYER_STATE2_2000000;
         Audio_PlayFanfare(NA_BGM_KAMARO_DANCE);
+        GameInteractor_ExecuteOnPlayerFanfare(NA_BGM_KAMARO_DANCE);
     }
 }
 

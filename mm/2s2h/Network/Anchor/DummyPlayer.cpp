@@ -1,6 +1,8 @@
 #include "Anchor.h"
 #include "2s2h/NameTag/NameTag.h"
 #include "2s2h/Enhancements/FrameInterpolation/FrameInterpolation.h"
+#include <ship/Context.h>
+#include "overlays/actors/ovl_En_Horse/z_en_horse.h"
 
 extern "C" {
 #include "macros.h"
@@ -60,7 +62,8 @@ static DamageTable DummyPlayerDamageTable = {
 };
 
 // Returns the instrument animation for the given form, matching what the real Player would be playing.
-// Goron drums / Zora guitar / Deku pipes are only drawn while skelAnime.animation is one of these.
+// Goron drums / Zora guitar / Deku pipes / human-form ocarina are only drawn while skelAnime.animation is one
+// of these.
 static void* DummyPlayer_GetInstrumentAnim(uint8_t form, uint8_t anim) {
     switch (form) {
         case PLAYER_FORM_GORON:
@@ -76,6 +79,8 @@ static void* DummyPlayer_GetInstrumentAnim(uint8_t form, uint8_t anim) {
             return anim == 1   ? (void*)&gPlayerAnim_pn_gakkistart
                    : anim == 2 ? (void*)&gPlayerAnim_pn_gakkiplay
                                : nullptr;
+        case PLAYER_FORM_HUMAN:
+            return anim == 4 ? (void*)&gPlayerAnim_link_normal_okarina_swing : nullptr;
         default:
             return nullptr;
     }
@@ -150,8 +155,10 @@ void DummyPlayer_Update(Actor* actor, PlayState* play) {
     actor->shape.shadowAlpha = 255;
     Math_Vec3s_Copy(&actor->shape.rot, &client.posRot.rot);
     Math_Vec3f_Copy(&actor->world.pos, &client.posRot.pos);
-    memcpy(&player->jointTableBuffer, &client.jointTable, 159);
-    memcpy(&player->jointTableUpperBuffer, &client.upperJointTable, 159);
+    // Write the joints where the skeleton reads them (skelAnime.jointTable is the ALIGN16 of the
+    // buffer), so the dummy draws the same pose as the remote.
+    memcpy(player->skelAnime.jointTable, client.jointTable, sizeof(client.jointTable));
+    memcpy(player->skelAnimeUpper.jointTable, client.upperJointTable, sizeof(client.upperJointTable));
     player->maskObjectLoadState = 0;
     player->maskId = player->currentMask;
     player->currentMask = client.currentMask;
@@ -165,6 +172,39 @@ void DummyPlayer_Update(Actor* actor, PlayState* play) {
     player->stateFlags1 = client.stateFlags1;
     player->stateFlags2 = client.stateFlags2;
     player->stateFlags3 = client.stateFlags3;
+    player->skelAnime.movementFlags = client.skelAnimeMovementFlags;
+    player->unk_AB8 = client.unk_AB8;
+
+    // The Kamaro/Bremen songs for remote users are synced one-way through PLAYER_SFX
+    // packets, so when the remote player stops dancing/marching nothing tells the local to
+    // stop. Detect the end of the dance/march and stop the song on the local.
+    bool isKamaroDancing = (player->stateFlags2 & PLAYER_STATE2_2000000) != 0;
+    bool isBremenMarching = (player->stateFlags3 & PLAYER_STATE3_20000000) != 0;
+    if (client.wasKamaroDancing && !isKamaroDancing) {
+        SEQCMD_STOP_SEQUENCE(SEQ_PLAYER_FANFARE, 0);
+    }
+    if (client.wasBremenMarching && !isBremenMarching) {
+        SEQCMD_STOP_SEQUENCE(SEQ_PLAYER_FANFARE, 0);
+    }
+    client.wasKamaroDancing = isKamaroDancing;
+    client.wasBremenMarching = isBremenMarching;
+
+    // While the remote is using the mask, the song fades out as the local moves away from it
+    if (isKamaroDancing || isBremenMarching) {
+        Player* localPlayer = GET_PLAYER(gPlayState);
+        if (localPlayer != nullptr) {
+            f32 distance = Math_Vec3f_DistXYZ(&localPlayer->actor.world.pos, &player->actor.world.pos);
+            f32 fadeDistance = 150.0f * CVarGetFloat("gNetwork.Anchor.SfxDistanceMultiplier", 1.0f);
+            f32 volume = fadeDistance > 0.0f ? 1.0f - distance / fadeDistance : (distance <= 0.0f ? 1.0f : 0.0f);
+            if (volume < 0.05f) {
+                volume = 0.05f;
+            }
+            u8 channelVolume = (u8)(volume * 0x7F);
+            for (int channelIndex = 0; channelIndex < 16; channelIndex++) {
+                SEQCMD_SET_CHANNEL_VOLUME(SEQ_PLAYER_FANFARE, channelIndex, 0, channelVolume);
+            }
+        }
+    }
     player->unk_B0C = client.unk_B0C;
     player->unk_B28 = client.unk_B28;
     player->unk_ACC = client.unk_ACC;
@@ -181,6 +221,48 @@ void DummyPlayer_Update(Actor* actor, PlayState* play) {
         memcpy(player->unk_B10, client.unk_B10, sizeof(client.unk_B10));
     } else {
         player->skelAnime.animation = Player_GetIdleAnim(player);
+    }
+
+    // Skin: apply the remote player's skin (best effort - skeletons are per-form)
+    if (client.skinId != client.dummySkinApplied) {
+        client.dummySkinApplied = client.skinId;
+        FlexSkeletonHeader* skinSkel = gPlayerSkeletons[player->transformation];
+        if (client.skinId == 1) {
+            // Kafei: load the Kafei skeleton (cached) so the dummy uses it instead of Link's
+            static FlexSkeletonHeader* sKafeiSkelPtr = nullptr;
+            if (sKafeiSkelPtr == nullptr) {
+                auto gKafeiSkelResource =
+                    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(gKafeiSkel);
+                if (gKafeiSkelResource != nullptr) {
+                    sKafeiSkelPtr = (FlexSkeletonHeader*)gKafeiSkelResource->GetRawPointer();
+                }
+            }
+            if (sKafeiSkelPtr != nullptr) {
+                skinSkel = sKafeiSkelPtr;
+            }
+        }
+        play->playerInit(player, play, skinSkel);
+    }
+
+    // Generate a horse for the remote player while they "call" it: mounted on the
+    // horse, or playing the ocarina (the Song of Epona teleports the horse to the
+    // player). The local player cannot interact with it (ENHORSE_UNRIDEABLE blocks mounting).
+    if ((client.stateFlags1 & PLAYER_STATE1_800000) || (client.stateFlags2 & PLAYER_STATE2_USING_OCARINA)) {
+        if (client.remoteHorse == nullptr || client.remoteHorse->update == nullptr) {
+            client.remoteHorse = Actor_Spawn(&play->actorCtx, play, ACTOR_EN_HORSE, actor->world.pos.x,
+                                             actor->world.pos.y, actor->world.pos.z, 0, actor->shape.rot.y, 0,
+                                             ENHORSE_PARAMS(ENHORSE_PARAM_4000, ENHORSE_2));
+            if (client.remoteHorse != nullptr) {
+                EnHorse* remoteHorse = (EnHorse*)client.remoteHorse;
+                remoteHorse->stateFlags |= ENHORSE_UNRIDEABLE;
+            }
+        }
+        if (client.remoteHorse != nullptr) {
+            client.remoteHorse->world.pos = actor->world.pos;
+        }
+    } else if (client.remoteHorse != nullptr) {
+        Actor_Kill(client.remoteHorse);
+        client.remoteHorse = nullptr;
     }
 
     PlayerItemAction modelItemAction =

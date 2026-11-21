@@ -12,6 +12,8 @@
 #include "2s2h/BenGui/CosmeticEditor.h"
 #include "2s2h/BenGui/HudEditor.h"
 #include "assets/2s2h_assets.h"
+#include "2s2h/Network/Anchor/AnchorMinimap.h"
+#include "overlays/actors/ovl_En_Elforg/z_en_elforg.h"
 #include <libultraship/bridge/consolevariablebridge.h>
 
 void MapDisp_DestroyMapI(PlayState* play);
@@ -552,6 +554,178 @@ void MapDisp_Minimap_DrawActors(PlayState* play) {
         }
 
         CLOSE_DISPS(play->state.gfxCtx);
+    }
+}
+
+static void MapDisp_Minimap_DrawMarker(PlayState* play, s32 posX, s32 posY, u8 r, u8 g, u8 b) {
+    OPEN_DISPS(play->state.gfxCtx);
+    gDPPipeSync(OVERLAY_DISP++);
+    gDPSetCombineMode(OVERLAY_DISP++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+    gDPSetPrimColor(OVERLAY_DISP++, 0, 0, r, g, b, play->interfaceCtx.minimapAlpha);
+    gDPLoadTextureBlock_Runtime(OVERLAY_DISP++, sWhiteSquareTex, G_IM_FMT_RGBA, G_IM_SIZ_16b, 16, 16, 0,
+                                G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
+                                G_TX_NOLOD, G_TX_NOLOD);
+    gSPTextureRectangle(OVERLAY_DISP++, (posX - 4) << 2, (posY - 4) << 2, (posX + 4) << 2, (posY + 4) << 2,
+                        G_TX_RENDERTILE, 0, 0, 0, 0);
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
+// Computes the minimap pixel position of a world position, mirroring MapDisp_Minimap_DrawActorIcon.
+static void MapDisp_Minimap_ComputeMarkerPos(PlayState* play, MapDataRoom* mapDataRoom, f32 scaleFrac,
+                                             s32 texOffsetX, s32 texOffsetY, f32 worldX, f32 worldZ,
+                                             s32* outPosX, s32* outPosY) {
+    if (!MapDisp_IsDataRotated(play)) {
+        *outPosX = (s32)((worldX - mapDataRoom->centerX) * scaleFrac) + sMapDisp.minimapBaseX + sMapDisp.minimapCurX -
+                   sMapDisp.minimapBaseX + texOffsetX;
+        *outPosY = (s32)((worldZ - mapDataRoom->centerZ) * scaleFrac) + sMapDisp.minimapBaseY + sMapDisp.minimapCurY -
+                   sMapDisp.minimapBaseY + texOffsetY;
+    } else {
+        *outPosX = -(s32)((worldX - mapDataRoom->centerX) * scaleFrac) + sMapDisp.minimapBaseX + sMapDisp.minimapCurX -
+                   sMapDisp.minimapBaseX + texOffsetX;
+        *outPosY = -(s32)((worldZ - mapDataRoom->centerZ) * scaleFrac) + sMapDisp.minimapBaseY + sMapDisp.minimapCurY -
+                   sMapDisp.minimapBaseY + texOffsetY;
+    }
+    *outPosX = Ship_MapModifyPosMirrorMode(
+        *outPosX, sMapDisp.minimapBaseX + sMapDisp.minimapCurX - sMapDisp.minimapBaseX + texOffsetX);
+    *outPosY = Ship_MapModifyPosMirrorMode(
+        *outPosY, sMapDisp.minimapBaseY + sMapDisp.minimapCurY - sMapDisp.minimapBaseY + texOffsetY);
+}
+
+static void MapDisp_Minimap_DrawRemotePlayers(PlayState* play) {
+    AnchorMinimapRemotePlayer remotePlayers[ANCHOR_MINIMAP_MAX_PLAYERS];
+    MapDataRoom* mapDataRoom;
+    s32 remotePlayerCount = Ship_GetMinimapRemotePlayers(remotePlayers, ANCHOR_MINIMAP_MAX_PLAYERS);
+    s32 posX, posY, texOffsetX, texOffsetY;
+    s32 scale;
+    f32 scaleFrac;
+    s32 i;
+
+    if (remotePlayerCount <= 0) {
+        return;
+    }
+
+    mapDataRoom = &sMapDisp.mapDataScene->rooms[sMapDisp.curRoom];
+    if (mapDataRoom->mapId == MAP_DATA_NO_MAP) {
+        return;
+    }
+
+    MapDisp_GetMapOffset(mapDataRoom, &texOffsetX, &texOffsetY);
+
+    scale = sMapDisp.mapDataScene->scale;
+    if (sMapDisp.mapDataScene->scale == 0) {
+        scale = 20;
+    } else if (sMapDisp.mapDataScene->scale == -1) {
+        s32 scaleTemp;
+
+        MapDisp_GetMapScale(mapDataRoom, &scaleTemp);
+        scale = scaleTemp;
+    }
+
+    scaleFrac = 1.0f / scale;
+
+    OPEN_DISPS(play->state.gfxCtx);
+
+    for (i = 0; i < remotePlayerCount; i++) {
+        s16 compassRot;
+
+        if (remotePlayers[i].sceneId != play->sceneId) {
+            continue;
+        }
+        MapDisp_Minimap_ComputeMarkerPos(play, mapDataRoom, scaleFrac, texOffsetX, texOffsetY,
+                                         remotePlayers[i].worldX, remotePlayers[i].worldZ, &posX, &posY);
+
+        // Draw an arrow like the local player's minimap marker, colored with the remote
+        // player's team color.
+        compassRot = (s32)(0x7FFF - remotePlayers[i].rotY) / 1024;
+        if (MapDisp_IsDataRotated(play)) {
+            compassRot += 0x7FFF;
+        }
+        if (sMirrorWorldActive) {
+            compassRot *= -1;
+        }
+
+        Gfx_SetupDL42_Overlay(play->state.gfxCtx);
+        gSPMatrix(OVERLAY_DISP++, &gIdentityMtx, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        gDPSetCombineLERP(OVERLAY_DISP++, PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0,
+                          PRIMITIVE, ENVIRONMENT, TEXEL0, ENVIRONMENT, TEXEL0, 0, PRIMITIVE, 0);
+        gDPSetEnvColor(OVERLAY_DISP++, 0, 0, 0, play->interfaceCtx.minimapAlpha);
+        gDPSetCombineMode(OVERLAY_DISP++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+        gDPSetRenderMode(OVERLAY_DISP++, G_RM_AA_DEC_LINE, G_RM_NOOP2);
+        Matrix_Translate(posX - 160.0f, 120.0f - posY, 0.0f, MTXMODE_NEW);
+        Matrix_RotateXFApply(-1.6f);
+        Matrix_RotateYF(compassRot / 10.0f, MTXMODE_APPLY);
+        Matrix_Scale(0.4f, 0.4f, 0.4f, MTXMODE_APPLY);
+        MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
+        gDPSetPrimColor(OVERLAY_DISP++, 0, 0, remotePlayers[i].colorR, remotePlayers[i].colorG,
+                        remotePlayers[i].colorB, play->interfaceCtx.minimapAlpha);
+        gSPDisplayList(OVERLAY_DISP++, gCompassArrowDL);
+    }
+
+    CLOSE_DISPS(play->state.gfxCtx);
+}
+
+static void MapDisp_Minimap_DrawStrayFairies(PlayState* play) {
+    static const u8 sStrayFairyMinimapColors[STRAY_FAIRY_AREA_MAX][3] = {
+        { 255, 235, 100 }, // STRAY_FAIRY_AREA_CLOCK_TOWN
+        { 255, 110, 160 }, // STRAY_FAIRY_AREA_WOODFALL
+        { 90, 255, 100 },  // STRAY_FAIRY_AREA_SNOWHEAD
+        { 120, 255, 255 }, // STRAY_FAIRY_AREA_GREAT_BAY
+        { 245, 245, 90 },  // STRAY_FAIRY_AREA_STONE_TOWER
+    };
+    Player* player = GET_PLAYER(play);
+    MapDataRoom* mapDataRoom;
+    ActorContext* actorCtx;
+    s32 texOffsetX, texOffsetY;
+    s32 scale;
+    f32 scaleFrac;
+    s32 posX, posY;
+    s32 i;
+
+    if (player == NULL || player->currentMask != PLAYER_MASK_GREAT_FAIRY) {
+        return;
+    }
+
+    mapDataRoom = &sMapDisp.mapDataScene->rooms[sMapDisp.curRoom];
+    if (mapDataRoom->mapId == MAP_DATA_NO_MAP) {
+        return;
+    }
+
+    MapDisp_GetMapOffset(mapDataRoom, &texOffsetX, &texOffsetY);
+
+    scale = sMapDisp.mapDataScene->scale;
+    if (sMapDisp.mapDataScene->scale == 0) {
+        scale = 20;
+    } else if (sMapDisp.mapDataScene->scale == -1) {
+        s32 scaleTemp;
+
+        MapDisp_GetMapScale(mapDataRoom, &scaleTemp);
+        scale = scaleTemp;
+    }
+    scaleFrac = 1.0f / scale;
+
+    actorCtx = &play->actorCtx;
+    for (i = 0; i < ACTORCAT_MAX; i++) {
+        Actor* actor = actorCtx->actorLists[i].first;
+
+        while (actor != NULL) {
+            if ((actor->id == ACTOR_EN_ELFORG) && (actor->update != NULL) && (actor->init == NULL) &&
+                Object_IsLoaded(&play->objectCtx, actor->objectSlot) &&
+                ((sMapDisp.curRoom == actor->room) || (actor->room == -1))) {
+                MapDisp_Minimap_ComputeMarkerPos(play, mapDataRoom, scaleFrac, texOffsetX, texOffsetY,
+                                                 actor->world.pos.x, actor->world.pos.z, &posX, &posY);
+                if ((posX > OTRGetRectDimensionFromLeftEdge(0)) && (posX < 0x3FF) && (posY > 0) && (posY < 0x3FF)) {
+                    s32 area = STRAY_FAIRY_GET_NON_DUNGEON_AREA(actor);
+
+                    if ((area < 0) || (area >= STRAY_FAIRY_AREA_MAX)) {
+                        area = 0;
+                    }
+                    MapDisp_Minimap_DrawMarker(play, posX, posY, sStrayFairyMinimapColors[area][0],
+                                               sStrayFairyMinimapColors[area][1],
+                                               sStrayFairyMinimapColors[area][2]);
+                }
+            }
+            actor = actor->next;
+        }
     }
 }
 
@@ -1406,6 +1580,8 @@ void MapDisp_DrawMinimap(PlayState* play, s32 playerInitX, s32 playerInitZ, s32 
                     MapDisp_Minimap_DrawRedCompassIcon(play, playerInitX, playerInitZ, playerInitDir);
                 }
                 MapDisp_Minimap_DrawActors(play);
+                MapDisp_Minimap_DrawRemotePlayers(play);
+                MapDisp_Minimap_DrawStrayFairies(play);
             }
         }
     }

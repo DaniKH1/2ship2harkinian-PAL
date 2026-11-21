@@ -7,6 +7,7 @@
 #include "DeveloperTools/SaveEditor.h"
 #include "DeveloperTools/CollisionViewer.h"
 #include "2s2h/Enhancements/Enhancements.h"
+#include "2s2h/Enhancements/ModMenu/ModMenu.h"
 #include "2s2h/Enhancements/GfxPatcher/AuthenticGfxPatches.h"
 #include "2s2h/PresetManager/PresetManager.h"
 #include "HudEditor.h"
@@ -42,6 +43,7 @@ extern SaveContext gSaveContext;
 }
 extern std::unordered_map<s16, const char*> warpPointSceneList;
 extern void Warp();
+extern "C" bool BenGui_IsStartupMenuActive(void);
 
 static std::unordered_map<int32_t, const char*> imguiScaleOptions = {
     { 0, "Small" },
@@ -1305,9 +1307,6 @@ void BenMenu::AddEnhancements() {
 
     path.column = SECTION_COLUMN_2;
     AddWidget(path, "Modes", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Play as Kafei", WIDGET_CVAR_CHECKBOX)
-        .CVar("gModes.PlayAsKafei")
-        .Options(CheckboxOptions().Tooltip("Requires scene reload to take effect."));
     AddWidget(path, "Hyrule Warriors Styled Link", WIDGET_CVAR_CHECKBOX)
         .CVar("gModes.HyruleWarriorsStyledLink")
         .Options(CheckboxOptions().Tooltip(

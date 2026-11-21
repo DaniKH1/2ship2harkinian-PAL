@@ -213,6 +213,10 @@ void GameInteractor_ExecuteOnPlayerSfx(u16 sfxId) {
     GameInteractor::Instance->ExecuteHooks<GameInteractor::OnPlayerSfx>(sfxId);
 }
 
+void GameInteractor_ExecuteOnPlayerFanfare(u16 fanfareId) {
+    GameInteractor::Instance->ExecuteHooks<GameInteractor::OnPlayerFanfare>(fanfareId);
+}
+
 void GameInteractor_ExecuteOnSceneFlagSet(s16 sceneId, FlagType flagType, u32 flag) {
     SPDLOG_DEBUG("OnSceneFlagSet: sceneId: {}, flagType: {}, flag: {}", sceneId, (u32)flagType, flag);
     GameInteractor::Instance->ExecuteHooks<GameInteractor::OnSceneFlagSet>(sceneId, flagType, flag);

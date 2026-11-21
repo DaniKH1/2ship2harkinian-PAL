@@ -39,6 +39,10 @@ typedef struct {
     u8 jointTable[159];
     u8 upperJointTable[159];
     uint8_t currentMask;
+    // Transition tracking so the local can stop the Kamaro/Bremen songs when the remote
+    // player stops dancing/marching (see DummyPlayer_Update)
+    bool wasKamaroDancing;
+    bool wasBremenMarching;
     uint8_t rightHandType;
     uint8_t leftHandType;
     int8_t currentShield;
@@ -53,16 +57,26 @@ typedef struct {
     int16_t unk_B28;
     int16_t unk_ACC;
     int8_t invincibilityTimer;
+    // Pose data for the root limb (Player_DrawImpl) so the dummy matches the remote
+    u8 skelAnimeMovementFlags;
+    float unk_AB8;
 
-    // Instrument state (only populated while a transformation instrument is being played)
-    uint8_t instrumentAnim; // 0 = none, 1 = start, 2 = play, 3 = wait (Goron only)
+    // Instrument state (only populated while an instrument is being played)
+    uint8_t instrumentAnim; // 0 = none, 1 = start, 2 = play, 3 = wait (Goron only), 4 = ocarina (human form)
     float curFrame;
     int16_t unk_B8A;
     int16_t unk_B86[2];
     float unk_B10[5];
 
+    // Skin (custom model) selected for this player (0 = vanilla Child Link)
+    uint8_t skinId;
+    // Last skin applied to the dummy of this player
+    uint8_t dummySkinApplied;
+
     // Ptr to the dummy player
     Player* player;
+    // Epona generated for the remote player while they are mounted on it
+    Actor* remoteHorse;
 } AnchorClient;
 
 typedef struct {
@@ -134,6 +148,8 @@ class Anchor : public Network {
 
     static Anchor* Instance;
     std::map<uint32_t, AnchorClient> clients;
+    // Selected skin for the local player (0 = vanilla Child Link)
+    uint8_t localSkinId = 0;
     std::vector<uint32_t> actorIndexToClientId;
     RoomState roomState;
 
@@ -151,7 +167,7 @@ class Anchor : public Network {
     void SendPacket_GameComplete();
     void SendPacket_GiveItem(u16 modId, s16 getItemId, std::string targetTeamId = "");
     void SendPacket_Handshake();
-    void SendPacket_PlayerSfx(u16 sfxId);
+    void SendPacket_PlayerSfx(u16 sfxId, bool fanfare = false);
     void SendPacket_PlayerUpdate();
     void SendPacket_RequestTeamState();
     void SendPacket_RequestTeleport(u32 clientId);

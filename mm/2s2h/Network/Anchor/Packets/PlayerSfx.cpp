@@ -7,6 +7,7 @@ extern "C" {
 #include "macros.h"
 #include "functions.h"
 #include "variables.h"
+#include "sequence.h"
 extern PlayState* gPlayState;
 }
 
@@ -16,7 +17,7 @@ extern PlayState* gPlayState;
  * Sound effects, only sent to other clients in the same scene as the player
  */
 
-void Anchor::SendPacket_PlayerSfx(u16 sfxId) {
+void Anchor::SendPacket_PlayerSfx(u16 sfxId, bool fanfare) {
     if (!IsSaveLoaded()) {
         return;
     }
@@ -25,6 +26,7 @@ void Anchor::SendPacket_PlayerSfx(u16 sfxId) {
 
     payload["type"] = PLAYER_SFX;
     payload["sfxId"] = sfxId;
+    payload["fanfare"] = fanfare;
     payload["quiet"] = true;
 
     for (auto& [clientId, client] : clients) {
@@ -47,5 +49,9 @@ void Anchor::HandlePacket_PlayerSfx(nlohmann::json payload) {
         return;
     }
 
-    Player_PlaySfx(clients[clientId].player, sfxId);
+    if (payload.value("fanfare", false)) {
+        Audio_PlayFanfare(sfxId);
+    } else {
+        Player_PlaySfx(clients[clientId].player, sfxId);
+    }
 }

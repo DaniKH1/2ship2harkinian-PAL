@@ -19,14 +19,32 @@
 
 #include "ModMenu.h"
 #include "ModCatalog.h"
+#include "2s2h/Enhancements/Modes/SkinCache.h"
+#include <ship/resource/archive/O2rArchive.h>
+#include <ship/resource/archive/OtrArchive.h>
 #include "2s2h/BenPort.h"
 #include "2s2h/resource/type/Skeleton.h"
 #include "2s2h/BenGui/MenuTypes.h"
 #include "2s2h/BenGui/BenMenu.h"
 #include "2s2h/BenGui/BenGui.hpp"
 #include "2s2h/BenGui/UiLocalization.h"
+#include "2s2h/GameInteractor/GameInteractor.h"
+#include "2s2h/Network/Anchor/Anchor.h"
+#include "functions.h"
+#include "z64save.h"
+#include "z64play.h"
+#include "variables.h"
+#include "objects/object_test3/object_test3.h"
+#include "objects/object_link_child/object_link_child.h"
 
 extern "C" bool BenGui_IsStartupMenuActive(void);
+extern "C" {
+extern PlayState* gPlayState;
+void func_80145698(SramContext* sramCtx);
+}
+void ApplyKafeiSkinParts(bool enabled);
+void ApplySkinToResource(int skinId);
+void RegisterSkinSelectorHooks();
 
 std::vector<std::string> enabledModFiles;
 std::vector<std::string> disabledModFiles;
@@ -261,6 +279,20 @@ static void CheckAndroidRecoveryMode() {
 void UpdateModFiles(bool init = false, bool reset = false) {
     if (init) {
         CheckAndroidRecoveryMode();
+        // Create the "skins" folder next to the executable if it doesn't exist.
+        // DISABLED for now: custom mod skins in the skins folder are not available
+        // until the skin selector supports them again.
+        /*
+        std::string skinsPath = Ship::Context::GetPathRelativeToAppBundle("skins");
+        if (skinsPath.empty() || skinsPath == "skins") {
+            skinsPath = Ship::Context::GetPathRelativeToAppDirectory("skins", appShortName);
+        }
+        if (skinsPath.empty() || skinsPath == "skins") {
+            skinsPath = "./skins";
+        }
+        std::error_code ec;
+        std::filesystem::create_directories(skinsPath, ec);
+        */
     }
     if (init || reset) {
         enabledModFiles.clear();
@@ -406,8 +438,13 @@ void UpdateModFiles(bool init = false, bool reset = false) {
 extern "C" void gfx_texture_cache_clear();
 
 void EnableMod(std::string file) {
-    disabledModFiles.erase(std::find(disabledModFiles.begin(), disabledModFiles.end(), file));
-    enabledModFiles.insert(enabledModFiles.begin(), file);
+    if (auto it = std::find(disabledModFiles.begin(), disabledModFiles.end(), file); it != disabledModFiles.end()) {
+        disabledModFiles.erase(it);
+    }
+    if (std::find(enabledModFiles.begin(), enabledModFiles.end(), file) == enabledModFiles.end()) {
+        // Newly activated mods go straight to the top of the load order (highest priority)
+        enabledModFiles.push_back(file);
+    }
 
     // TODO: runtime changes
     // GetArchiveManager()->AddArchive(file);
@@ -415,12 +452,51 @@ void EnableMod(std::string file) {
 }
 
 void DisableMod(std::string file) {
-    enabledModFiles.erase(std::find(enabledModFiles.begin(), enabledModFiles.end(), file));
-    disabledModFiles.insert(disabledModFiles.begin(), file);
+    if (auto it = std::find(enabledModFiles.begin(), enabledModFiles.end(), file); it != enabledModFiles.end()) {
+        enabledModFiles.erase(it);
+    }
+    if (std::find(disabledModFiles.begin(), disabledModFiles.end(), file) == disabledModFiles.end()) {
+        disabledModFiles.insert(disabledModFiles.begin(), file);
+    }
 
     // TODO: runtime changes
     // GetArchiveManager()->RemoveArchive(file);
     AfterModChange();
+}
+
+// A disabled mod must not be active when a save is loaded: drop it from the
+// active set and unload its archives so it stops applying to the player.
+static void ModMenu_OnSaveLoad() {
+    if (disabledModFiles.empty()) {
+        return;
+    }
+
+    std::erase_if(enabledModFiles, [&](const std::string& mod) {
+        return std::find(disabledModFiles.begin(), disabledModFiles.end(), mod) != disabledModFiles.end();
+    });
+
+    const auto archiveManager = GetArchiveManager();
+    for (const auto& file : disabledModFiles) {
+        const auto pathIt = filePaths.find(file);
+        if (pathIt == filePaths.end()) {
+            continue;
+        }
+        const std::string archiveKey = pathIt->second.lexically_normal().generic_string();
+        loadedModArchives.erase(archiveKey);
+        if (archiveManager != nullptr) {
+            archiveManager->RemoveArchive(archiveKey);
+        }
+    }
+
+    // Persist the updated enabled/disabled lists so a restart keeps the mod disabled.
+    SetEnabledModsCVarValue();
+
+    // Re-init the player so the current skeleton is used on save load.
+    if (gPlayState != nullptr) {
+        if (Player* player = GET_PLAYER(gPlayState)) {
+            gPlayState->playerInit(player, gPlayState, gPlayerSkeletons[player->transformation]);
+        }
+    }
 }
 
 void DrawModInfo(std::string file) {
@@ -799,7 +875,11 @@ std::vector<ModGroup> GetModGroups(const std::vector<std::string>& modFiles) {
     std::map<std::string, std::vector<ModGroup::VariantGroup>> variantsByRoot;
 
     for (auto file = modFiles.rbegin(); file != modFiles.rend(); ++file) {
-        const std::filesystem::path& archivePath = filePaths.at(*file);
+        auto pathIt = filePaths.find(*file);
+        if (pathIt == filePaths.end()) {
+            continue; // Skip files not in filePaths (e.g., skin cache entries)
+        }
+        const std::filesystem::path& archivePath = pathIt->second;
         if (!GetOptionalGroupName(archivePath).empty()) {
             continue;
         }
@@ -911,6 +991,260 @@ static bool MatchesModSearch(const ModGroup& group, const std::string& query) {
                        });
 }
 
+static void ForcePersistentSave();
+static void RestartGame();
+
+// Returns true if any of the given mod files replace files inside the internal
+// "object_link_child" folder (the child-Link assets). Only those mods are listed by the
+// Skin Selector.
+static bool ModChangesObjectLinkChildFiles(const std::vector<std::string>& files) {
+    const auto archiveManager = GetArchiveManager();
+    if (archiveManager == nullptr) {
+        return false;
+    }
+    const auto archives = archiveManager->GetArchives();
+    if (archives == nullptr) {
+        return false;
+    }
+    for (const auto& file : files) {
+        const auto pathIt = filePaths.find(file);
+        if (pathIt == filePaths.end()) {
+            continue;
+        }
+        const std::string archiveKey = pathIt->second.lexically_normal().generic_string();
+        for (const auto& archive : *archives) {
+            if (archive == nullptr || archive->GetPath() != archiveKey) {
+                continue;
+            }
+            const auto archiveFiles = archive->ListFiles();
+            if (archiveFiles == nullptr) {
+                continue;
+            }
+            for (const auto& [hash, path] : *archiveFiles) {
+                if (path.find("object_link_child") != std::string::npos) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+void DrawSkinSelector() {
+    if (Anchor::Instance == nullptr) {
+        return;
+    }
+
+    // Skins: vanilla Child Link + Kafei.
+    // For now, custom mod skins from the "skins" folder are not selectable in the
+    // skin selector (the folder scan is disabled until mod skins are revisited).
+    std::vector<std::pair<std::string, std::vector<std::string>>> skins;
+    skins.emplace_back("Child Link (vanilla)", std::vector<std::string>{});
+    skins.emplace_back("Kafei", std::vector<std::string>{});
+    /*
+    // Read skin mods from the "skins" folder next to the executable (not the mods folder)
+    std::string skinsPath = Ship::Context::GetPathRelativeToAppBundle("skins");
+    if (skinsPath.empty() || skinsPath == "skins") {
+        skinsPath = Ship::Context::GetPathRelativeToAppDirectory("skins", appShortName);
+    }
+    if (skinsPath.empty() || skinsPath == "skins") {
+        skinsPath = "./skins";
+    }
+    if (std::filesystem::is_directory(skinsPath)) {
+        for (const auto& entry : std::filesystem::directory_iterator(skinsPath)) {
+            if (entry.is_regular_file() && IsValidExtension(entry.path().extension().string())) {
+                std::string skinName = entry.path().stem().string();
+                if (skinName.empty() || skinName == "." || skinName == "..") {
+                    skinName = "skin-" + std::to_string(std::hash<std::string>{}(entry.path().filename().string()));
+                }
+                skins.emplace_back(skinName, std::vector<std::string>{ entry.path().filename().string() });
+            }
+        }
+    }
+    */
+
+    uint32_t current = Anchor::Instance->localSkinId;
+    if (current >= skins.size()) {
+        current = 0;
+        // Mod skins are disabled until further notice: the Skin Selector only offers
+        // vanilla Child Link and Kafei. Reset any stale mod skin selection so it
+        // can't be re-applied on play destroy.
+        Anchor::Instance->localSkinId = 0;
+        CVarSetInteger("gModes.SkinSelectorId", 0);
+        Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+    }
+
+    ImGui::TextColored(UIWidgets::ColorValues.at(THEME_COLOR), "Skin Selector");
+    ImGui::SetNextItemWidth(-1.0f);
+    const char* preview = skins[current].first.c_str();
+    if (ImGui::BeginCombo("##skin-selector", preview)) {
+        for (size_t i = 0; i < skins.size(); i++) {
+            const bool isCurrent = (i == current);
+            if (ImGui::Selectable(skins[i].first.c_str(), isCurrent)) {
+                if (i != current) {
+                    Anchor::Instance->localSkinId = i;
+                    // Persist the selection so it survives game restarts.
+                    CVarSetInteger("gModes.SkinSelectorId", static_cast<int32_t>(i));
+                    Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
+                    // Skin files live in the skins/ folder, not the mods folder: erase any
+                    // stale entry, but never add them to the active mods list.
+                    for (const auto& file : skins[i].second) {
+                        std::erase_if(enabledModFiles,
+                                      [&file](const std::string& mod) { return mod == file; });
+                    }
+                    // When selecting vanilla or Kafei, force those skins above any mod skin by
+                    // moving every mod that replaces object_link_child to the bottom of the load order.
+                    if (i <= 1) {
+                        for (const auto& group : GetModGroups(GetModFiles(true))) {
+                            if (!ModChangesObjectLinkChildFiles(group.files)) {
+                                continue;
+                            }
+                            for (const auto& file : group.files) {
+                                std::erase_if(enabledModFiles,
+                                              [&file](const std::string& mod) { return mod == file; });
+                                enabledModFiles.insert(enabledModFiles.begin(), file);
+                            }
+                        }
+                    }
+                    SetEnabledModsCVarValue();
+
+                    // Asynchronously generate/unload the skin cache for the selected skin.
+                    // Kafei gets a cached model (max priority, separate folder, hidden from mods list).
+                    // Vanilla does not need a cache (it's the base game).
+                    if (i == 1) {
+                        // Kafei selected: generate cache asynchronously
+                        std::thread([]() { SkinCache::Generate(true); }).detach();
+                    } else {
+                        // Vanilla or mod selected: unload any existing skin cache
+                        SkinCache::Unload();
+                    }
+                    // Note: ApplySkinToResource(i) is called after the skin archive is
+                    // mounted below, so that mod skeletons are picked up.
+
+                    // Load/unload skin mod archives from the "skins" folder
+                    static std::shared_ptr<Ship::Archive> sLoadedSkinModArchive = nullptr;
+                    if (i >= 2) {
+                        // Mod skin: unload previous, load new
+                        if (sLoadedSkinModArchive != nullptr) {
+                            Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->RemoveArchive(sLoadedSkinModArchive);
+                            sLoadedSkinModArchive = nullptr;
+                        }
+                        std::string skinsPath = Ship::Context::GetPathRelativeToAppBundle("skins");
+                        if (skinsPath.empty() || skinsPath == "skins") {
+                            skinsPath = Ship::Context::GetPathRelativeToAppDirectory("skins", appShortName);
+                        }
+                        if (skinsPath.empty() || skinsPath == "skins") {
+                            skinsPath = "./skins";
+                        }
+                        std::string skinFile = skinsPath + "/" + skins[i].second[0];
+                        std::shared_ptr<Ship::Archive> newArchive = nullptr;
+                        if (skinFile.find(".o2r") != std::string::npos || skinFile.find(".O2R") != std::string::npos) {
+                            newArchive = std::make_shared<Ship::O2rArchive>(skinFile);
+                        } else {
+                            newArchive = std::make_shared<Ship::OtrArchive>(skinFile);
+                        }
+                        if (newArchive) {
+                            newArchive->Load();
+                            sLoadedSkinModArchive = Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->AddArchive(newArchive);
+                            if (sLoadedSkinModArchive) {
+                                sLoadedSkinModArchive->SetPriority(INT32_MAX);
+                                SPDLOG_INFO("SkinSelector: skin archive mounted: {}", skinFile);
+                                if (GetArchiveManager()->HasFile("objects/object_link_child/gLinkHumanSkel")) {
+                                    SPDLOG_INFO("SkinSelector: skin provides objects/object_link_child/gLinkHumanSkel");
+                                } else {
+                                    SPDLOG_WARN("SkinSelector: skin does NOT provide "
+                                                "objects/object_link_child/gLinkHumanSkel");
+                                }
+                            } else {
+                                SPDLOG_ERROR("SkinSelector: failed to mount skin archive: {}", skinFile);
+                            }
+                        } else {
+                            SPDLOG_ERROR("SkinSelector: no skin archive created for: {}", skinFile);
+                        }
+                    } else {
+                        // Vanilla or Kafei: unload any skin mod archive
+                        if (sLoadedSkinModArchive != nullptr) {
+                            Ship::Context::GetRawInstance()->GetResourceManager()->GetArchiveManager()->RemoveArchive(sLoadedSkinModArchive);
+                            sLoadedSkinModArchive = nullptr;
+                        }
+                    }
+
+                    // Apply the skin to the resource after the skin archive is mounted so
+                    // that mod skeletons are picked up by the resource system.
+                    ApplySkinToResource(i);
+
+                    // Los cambios de skin se aplican al instante.
+                    if (gPlayState != nullptr) {
+                        if (Player* player = GET_PLAYER(gPlayState)) {
+                            if (skins[i].first == "Kafei") {
+                                auto gKafeiSkelResource =
+                                    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(gKafeiSkel);
+                                if (gKafeiSkelResource != nullptr && gKafeiSkelResource->GetRawPointer() != nullptr) {
+                                    FlexSkeletonHeader* gKafeiSkelPtr =
+                                        (FlexSkeletonHeader*)gKafeiSkelResource->GetRawPointer();
+                                    gPlayState->playerInit(player, gPlayState, gKafeiSkelPtr);
+                                    ApplyKafeiSkinParts(true);
+                                } else {
+                                    gPlayState->playerInit(player, gPlayState,
+                                                           gPlayerSkeletons[player->transformation]);
+                                }
+                            } else if (skins[i].first == "Child Link (vanilla)") {
+                                gPlayState->playerInit(player, gPlayState,
+                                                       gPlayerSkeletons[player->transformation]);
+                                ApplyKafeiSkinParts(false);
+                            } else {
+                                // Mod skin: ApplySkinToResource set gPlayerSkeletons[HUMAN]
+                                // to the mod skeleton, so the Player draws the mod's model.
+                                gPlayState->playerInit(player, gPlayState,
+                                                       gPlayerSkeletons[player->transformation]);
+                                auto gLinkHumanSkelAfter =
+                                    Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(gLinkHumanSkel);
+                                SPDLOG_INFO("SkinSelector: gLinkHumanSkel resource after playerInit: {}",
+                                            gLinkHumanSkelAfter != nullptr);
+                            }
+                        }
+                    }
+                    // Register the hook to re-apply on zone change (only once)
+                    RegisterSkinSelectorHooks();
+                }
+            }
+        }
+        ImGui::EndCombo();
+    }
+}
+
+static bool gRestartPromptPending = false;
+
+static void ForcePersistentSave() {
+    if (gPlayState == nullptr) {
+        return;
+    }
+    SramContext* sramCtx = &gPlayState->sramCtx;
+    func_80145698(sramCtx);
+    SysFlashrom_WriteDataSync(sramCtx->saveBuf, gFlashSaveStartPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER],
+                              gFlashSpecialSaveNumPages[gSaveContext.fileNum * FLASH_SAVE_MAIN_MULTIPLIER]);
+}
+
+static void RestartGame() {
+    std::vector<wchar_t> modulePath(32768);
+    const DWORD modulePathLength = GetModuleFileNameW(nullptr, modulePath.data(), (DWORD)modulePath.size());
+    if (modulePathLength == 0) {
+        return;
+    }
+    const std::wstring commandLine(modulePath.data(), modulePathLength);
+    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back(L'\0');
+    STARTUPINFOW startupInfo = {};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo = {};
+    if (CreateProcessW(modulePath.data(), mutableCommandLine.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
+                       &startupInfo, &processInfo)) {
+        CloseHandle(processInfo.hThread);
+        CloseHandle(processInfo.hProcess);
+    }
+    Ship::Context::GetRawInstance()->GetWindow()->Close();
+}
+
 void DrawMods(bool enabled) {
     std::vector<std::string>& selectedModFiles = GetModFiles(enabled);
     if (selectedModFiles.empty()) {
@@ -933,7 +1267,7 @@ void DrawMods(bool enabled) {
     }
 
     for (size_t i = 0; i < groups.size(); i++) {
-        const ModGroup& group = groups[i];
+        ModGroup& group = groups[i];
         if (!MatchesModSearch(group, modSearchQuery)) {
             continue;
         }
@@ -941,7 +1275,8 @@ void DrawMods(bool enabled) {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
         ImGui::PushStyleColor(ImGuiCol_ChildBg,
                               enabled ? IM_COL32(36, 47, 57, 245) : IM_COL32(34, 37, 45, 230));
-        ImGui::BeginChild((group.key + "_card").c_str(), ImVec2(0.0f, 84.0f), true,
+        ImGui::BeginChild((group.key + "_card").c_str(), ImVec2(0.0f, 0.0f),
+                          ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY,
                           ImGuiWindowFlags_NoScrollbar);
         bool isEnabled = enabled;
         std::vector<std::string> modFilesToToggle = group.files;
@@ -994,7 +1329,70 @@ void DrawMods(bool enabled) {
 
         ImGui::SameLine();
         ImGui::BeginGroup();
-        ImGui::TextWrapped("%s", group.name.c_str());
+        const bool filesOpen = ImGui::TreeNodeEx(group.key.c_str(),
+                                                 ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth,
+                                                 "%s", group.name.c_str());
+        if (filesOpen) {
+            // Ensure the files appear below the folder name.
+            ImGui::NewLine();
+            const auto fileLabel = [](const std::string& file) {
+                const auto archivePath = filePaths.find(file);
+                return archivePath != filePaths.end() ? archivePath->second.stem().string()
+                                                      : std::filesystem::path(file).stem().string();
+            };
+            bool filesReordered = false;
+            for (size_t fileIndex = 0; fileIndex < group.files.size(); ++fileIndex) {
+                const std::string& file = group.files[fileIndex];
+                if (enabled) {
+                    // Arrows per mod to choose the priority order within the folder,
+                    // placed on the left of the mod name
+                    if (fileIndex > 0 &&
+                        UIWidgets::StateButton((std::string("fileUp") + std::to_string(fileIndex)).c_str(),
+                                                ICON_FA_ARROW_UP, ImVec2(25, 25),
+                                                UIWidgets::ButtonOptions().Color(THEME_COLOR))) {
+                        std::swap(group.files[fileIndex], group.files[fileIndex - 1]);
+                        filesReordered = true;
+                    }
+                    ImGui::SameLine();
+                    if (fileIndex + 1 < group.files.size() &&
+                        UIWidgets::StateButton((std::string("fileDown") + std::to_string(fileIndex)).c_str(),
+                                                ICON_FA_ARROW_DOWN, ImVec2(25, 25),
+                                                UIWidgets::ButtonOptions().Color(THEME_COLOR))) {
+                        std::swap(group.files[fileIndex], group.files[fileIndex + 1]);
+                        filesReordered = true;
+                    }
+                    ImGui::SameLine();
+                }
+                ImGui::BulletText("%s", fileLabel(file).c_str());
+            }
+            if (filesReordered) {
+                RebuildModFileOrder(groups, selectedModFiles);
+                AfterModChange();
+            }
+            for (const auto& variantGroup : group.variantGroups) {
+                for (const auto& option : variantGroup.options) {
+                    for (const auto& file : option.files) {
+                        ImGui::BulletText("%s", fileLabel(file).c_str());
+                    }
+                }
+            }
+            for (const auto& optionalGroup : group.optionalGroups) {
+                // Hide disabled settings ("Optional content") from the content dropdown.
+                const bool optionalGroupEnabled =
+                    std::all_of(optionalGroup.files.begin(), optionalGroup.files.end(),
+                                [](const std::string& file) {
+                                    return std::find(enabledModFiles.begin(), enabledModFiles.end(), file) !=
+                                           enabledModFiles.end();
+                                });
+                if (!optionalGroupEnabled) {
+                    continue;
+                }
+                for (const auto& file : optionalGroup.files) {
+                    ImGui::BulletText("%s", fileLabel(file).c_str());
+                }
+            }
+            ImGui::TreePop();
+        }
         size_t archiveCount = group.files.size();
         if (enabled) {
             for (const auto& variantGroup : group.variantGroups) {
@@ -1046,9 +1444,14 @@ void DrawMods(bool enabled) {
             const std::string modSettingsPopup =
                 std::string(BenGui::TranslateUiText("Mod Settings")) + "###optional-mod-settings";
             if (!group.optionalGroups.empty() || !group.variantGroups.empty()) {
+                // Remove the blue highlight from the settings/delete buttons.
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.26f, 0.26f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
                 if (ImGui::Button(BenGui::TranslateUiText("Mod Settings"))) {
                     ImGui::OpenPopup(modSettingsPopup.c_str());
                 }
+                ImGui::PopStyleColor(3);
             }
             if (ImGui::IsPopupOpen(modSettingsPopup.c_str())) {
                 ImGui::SetNextWindowSize(ImVec2(600.0f, 520.0f), ImGuiCond_Appearing);
@@ -1127,11 +1530,13 @@ void DrawMods(bool enabled) {
                     ImGui::Text("%s", BenGui::TranslateUiText("Optional content"));
                 }
                 for (const auto& optionalGroup : group.optionalGroups) {
-                    bool optionEnabled = std::all_of(
-                        optionalGroup.files.begin(), optionalGroup.files.end(), [](const std::string& file) {
-                            return std::find(enabledModFiles.begin(), enabledModFiles.end(), file) !=
-                                   enabledModFiles.end();
-                        });
+                    bool optionEnabled =
+                        !optionalGroup.files.empty() &&
+                        std::all_of(optionalGroup.files.begin(), optionalGroup.files.end(),
+                                    [](const std::string& file) {
+                                        return std::find(enabledModFiles.begin(), enabledModFiles.end(), file) !=
+                                               enabledModFiles.end();
+                                    });
                     if (ImGui::Checkbox(optionalGroup.name.c_str(), &optionEnabled)) {
                         toggledOptionalGroups.emplace_back(optionalGroup.files, optionEnabled);
                     }
@@ -1145,6 +1550,10 @@ void DrawMods(bool enabled) {
                 if (!group.optionalGroups.empty() || !group.variantGroups.empty()) {
                     ImGui::SameLine();
                 }
+                // Remove the blue highlight from the settings/delete buttons.
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.26f, 0.26f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
                 if (ImGui::Button(BenGui::TranslateUiText("Delete"))) {
                     const std::string prompt =
                         std::string(BenGui::TranslateUiText("Delete this mod and all its files?")) + "\n" + group.name;
@@ -1155,6 +1564,7 @@ void DrawMods(bool enabled) {
                                               DeleteModContents(modRoot, files);
                                           });
                 }
+                ImGui::PopStyleColor(3);
             }
             ImGui::PopID();
         }
@@ -1171,6 +1581,7 @@ void DrawMods(bool enabled) {
     }
 
     if (switchFromIndex < groups.size() && switchToIndex < groups.size()) {
+        gRestartPromptPending = true;
         std::iter_swap(groups.begin() + switchFromIndex, groups.begin() + switchToIndex);
         RebuildModFileOrder(groups, selectedModFiles);
         AfterModChange();
@@ -1196,6 +1607,9 @@ void DrawMods(bool enabled) {
     }
     for (const auto& [filesToEnable, filesToDisable] : toggledVariants) {
         ApplyVariantSelection(filesToEnable, filesToDisable);
+    }
+    if (!toggledGroups.empty() || !toggledOptionalGroups.empty() || !toggledVariants.empty()) {
+        gRestartPromptPending = true;
     }
 }
 
@@ -1388,6 +1802,10 @@ void ModMenuWindow::DrawElement() {
 
 void ModMenu_LoadArchives() {
     UpdateModFiles(true);
+    if (GameInteractor::Instance != nullptr) {
+        GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSaveLoad>(
+            [](s16) { ModMenu_OnSaveLoad(); });
+    }
 }
 
 static std::wstring QuoteWindowsArgument(const std::wstring& argument) {

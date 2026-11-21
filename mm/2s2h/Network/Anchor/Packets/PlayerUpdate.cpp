@@ -12,7 +12,7 @@ extern PlayState* gPlayState;
 
 // Goron drums / Zora guitar / Deku pipes are drawn by z_player_lib.c only while skelAnime.animation matches the
 // instrument animations, so the remote dummy needs to know which one is active.
-// 0 = none, 1 = start, 2 = play, 3 = wait (Goron only)
+// 0 = none, 1 = start, 2 = play, 3 = wait (Goron only), 4 = ocarina (human form)
 static uint8_t GetInstrumentAnim(Player* player) {
     void* anim = player->skelAnime.animation;
     switch (player->transformation) {
@@ -35,6 +35,12 @@ static uint8_t GetInstrumentAnim(Player* player) {
                 return 1;
             if (BEN_ANIM_EQUAL(anim, gPlayerAnim_pn_gakkiplay))
                 return 2;
+            break;
+        case PLAYER_FORM_HUMAN:
+            if (BEN_ANIM_EQUAL(anim, gPlayerAnim_link_normal_okarina_start) ||
+                BEN_ANIM_EQUAL(anim, gPlayerAnim_link_normal_okarina_swing)) {
+                return 4;
+            }
             break;
         default:
             break;
@@ -77,8 +83,16 @@ void Anchor::SendPacket_PlayerUpdate() {
     payload["transformation"] = player->transformation;
     payload["posRot"]["pos"] = player->actor.world.pos;
     payload["posRot"]["rot"] = player->actor.shape.rot;
-    payload["jointTable"] = player->jointTableBuffer;
-    payload["upperJointTable"] = player->jointTableUpperBuffer;
+    // The skeleton reads joints from skelAnime.jointTable, which is ALIGN16 of the buffers
+    // (SkelAnime_InitPlayer); send the data from where the skeleton reads it so the remote
+    // dummy draws the same pose.
+    payload["jointTable"] = std::vector<u8>(reinterpret_cast<u8*>(player->skelAnime.jointTable),
+                                            reinterpret_cast<u8*>(player->skelAnime.jointTable) +
+                                                sizeof(player->jointTableBuffer));
+    payload["upperJointTable"] =
+        std::vector<u8>(reinterpret_cast<u8*>(player->skelAnimeUpper.jointTable),
+                        reinterpret_cast<u8*>(player->skelAnimeUpper.jointTable) +
+                            sizeof(player->jointTableUpperBuffer));
     payload["currentMask"] = player->currentMask;
     payload["rightHandType"] = player->rightHandType;
     payload["leftHandType"] = player->leftHandType;
@@ -94,6 +108,9 @@ void Anchor::SendPacket_PlayerUpdate() {
     payload["unk_B28"] = player->unk_B28;
     payload["unk_ACC"] = player->unk_ACC;
     payload["invincibilityTimer"] = player->invincibilityTimer;
+    payload["skelAnimeMovementFlags"] = player->skelAnime.movementFlags;
+    payload["unk_AB8"] = player->unk_AB8;
+    payload["skinId"] = localSkinId;
     payload["quiet"] = true;
 
     // Only add the instrument data while an instrument is active, this packet is sent every frame
@@ -153,6 +170,8 @@ void Anchor::HandlePacket_PlayerUpdate(nlohmann::json payload) {
         client.unk_B28 = payload.value("unk_B28", (int16_t)0);
         client.unk_ACC = payload.value("unk_ACC", (int16_t)0);
         client.invincibilityTimer = payload.value("invincibilityTimer", (int8_t)0);
+        client.skelAnimeMovementFlags = payload.value("skelAnimeMovementFlags", (uint8_t)0);
+        client.unk_AB8 = payload.value("unk_AB8", 0.0f);
 
         // Absent from the payload when no instrument is active, so these reset to 0/none
         client.instrumentAnim = payload.value("instrumentAnim", (uint8_t)0);
@@ -166,5 +185,6 @@ void Anchor::HandlePacket_PlayerUpdate(nlohmann::json payload) {
         for (int i = 0; i < 5; i++) {
             client.unk_B10[i] = i < (int)unkB10.size() ? unkB10[i] : 0.0f;
         }
+        client.skinId = payload.value("skinId", (uint8_t)0);
     }
 }

@@ -437,6 +437,30 @@ const char* TranslateUiText(const char* text) {
         { "Language", "Idioma" },
         { "English", "Inglés" },
         { "Español", "Español" },
+        { "Sail Hero", "Héroe de Sail" },
+        { "Sail Card", "Tarjeta de Sail" },
+        { "A networking protocol for remote control of the client",
+          "Un protocolo de red para el control remoto del cliente" },
+        { "Connection", "Conexión" },
+        { "Host & Port", "Host y puerto" },
+        { "Disable", "Desactivar" },
+        { "Enable", "Activar" },
+        { "Connected", "Conectado" },
+        { "Connecting...", "Conectando..." },
+        { "Sail is disabled - set a valid host & port to enable",
+          "Sail está desactivado; configura un host y un puerto válidos para activarlo" },
+        { "Sail is a networking protocol designed to facilitate remote control of the "
+          "2Ship2Harkinian client. It is intended to be utilized alongside a Sail server, "
+          "for which we provide a few straightforward implementations on our GitHub. The "
+          "current implementations available allow integration with Twitch chat and SAMMI "
+          "Bot, feel free to contribute your own!",
+          "Sail es un protocolo de red diseñado para facilitar el control remoto del cliente 2Ship2Harkinian. "
+          "Está pensado para usarse junto a un servidor Sail, para el que proporcionamos algunas implementaciones "
+          "sencillas en nuestro GitHub. Las implementaciones disponibles actualmente permiten integrarse con Twitch "
+          "chat y SAMMI Bot; si quieres, ¡puedes contribuir con la tuya!" },
+        { "Copy GitHub link", "Copiar enlace a GitHub" },
+        { "Couldn't resolve the Sail host", "No se pudo resolver el host de Sail" },
+        { "Copied to clipboard", "Copiado al portapapeles" },
     };
 
     auto translation = spanish.find(text);

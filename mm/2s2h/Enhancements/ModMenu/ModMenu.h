@@ -6,6 +6,7 @@
 #ifdef __cplusplus
 void ModMenu_LoadArchives();
 bool ModMenu_StartGame(std::string& error);
+void DrawSkinSelector();
 
 class ModMenuWindow : public Ship::GuiWindow {
   public:

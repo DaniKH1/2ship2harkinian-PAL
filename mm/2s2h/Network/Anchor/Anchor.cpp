@@ -8,11 +8,33 @@
 #include "2s2h/ShipUtils.h"
 #include "2s2h/Rando/Spoiler/Spoiler.h"
 #include "2s2h/Rando/MiscBehavior/MiscBehavior.h"
+#include "2s2h/Network/Anchor/AnchorMinimap.h"
 
 extern "C" {
 #include "variables.h"
 #include "functions.h"
 extern PlayState* gPlayState;
+}
+
+extern "C" s32 Ship_GetMinimapRemotePlayers(AnchorMinimapRemotePlayer* out, s32 maxCount) {
+    s32 count = 0;
+    if (Anchor::Instance == nullptr) {
+        return 0;
+    }
+    for (auto& [clientId, client] : Anchor::Instance->clients) {
+        if (!client.online || client.self || client.player == nullptr || count >= maxCount) {
+            continue;
+        }
+        out[count].worldX = client.posRot.pos.x;
+        out[count].worldZ = client.posRot.pos.z;
+        out[count].colorR = client.color.r;
+        out[count].colorG = client.color.g;
+        out[count].colorB = client.color.b;
+        out[count].sceneId = client.sceneId;
+        out[count].rotY = client.posRot.rot.y;
+        count++;
+    }
+    return count;
 }
 
 // MARK: - Overrides
@@ -27,6 +49,12 @@ void Anchor::Enable() {
 void Anchor::Disable() {
     Network::Disable();
 
+    for (auto& [clientId, client] : clients) {
+        if (client.remoteHorse != nullptr) {
+            Actor_Kill(client.remoteHorse);
+            client.remoteHorse = nullptr;
+        }
+    }
     clients.clear();
     RefreshClientActors();
 }
@@ -145,6 +173,7 @@ void Anchor::RegisterHooks() {
     });
 
     COND_HOOK(OnPlayerSfx, isConnected, [&](u16 sfxId) { SendPacket_PlayerSfx(sfxId); });
+    COND_HOOK(OnPlayerFanfare, isConnected, [&](u16 fanfareId) { SendPacket_PlayerSfx(fanfareId, true); });
 
     COND_HOOK(OnSaveLoad, isConnected, [&](s16 fileNum) { SendPacket_RequestTeamState(); });
 
