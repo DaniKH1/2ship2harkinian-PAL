@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep patch files in LF so git apply can parse them on Windows
+patches/*.patch binary
