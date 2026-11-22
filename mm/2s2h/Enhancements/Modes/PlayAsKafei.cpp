@@ -141,6 +141,8 @@ void ApplySkinToResource(int skinId) {
             }
         }
         ApplyKafeiSkinParts(true);
+        // Make sure the player init on first load uses the patched skeleton.
+        gPlayerSkeletons[PLAYER_FORM_HUMAN] = gLinkHumanSkelPtr;
     } else {
         // Mod skins are disabled until further notice: the Skin Selector only offers
         // "Child Link (vanilla)" and "Kafei", so any stale mod skin selection (skinId >= 2)
@@ -207,6 +209,47 @@ void RegisterPlayAsKafei() {
 
     // Register skin selector hooks (re-apply skin on zone change)
     RegisterSkinSelectorHooks();
+
+    // Apply the selected skin on the very first scene load so it shows up immediately
+    // when starting the game, instead of only on the next zone change.
+    GameInteractor::Instance->RegisterGameHook<GameInteractor::OnSceneInit>([](s16 sceneId, s8 spawnNum) {
+        static bool applied = false;
+        if (applied) {
+            return;
+        }
+        applied = true;
+
+        int skinId = CVarGetInteger("gModes.SkinSelectorId", 0);
+        if (Anchor::Instance != nullptr) {
+            Anchor::Instance->localSkinId = static_cast<uint8_t>(skinId);
+        }
+        if (!CVAR) {
+            ApplySkinToResource(skinId);
+        }
+
+        if (gPlayState != nullptr) {
+            if (Player* player = GET_PLAYER(gPlayState)) {
+                if (skinId == 1) { // Kafei
+                    auto gKafeiSkelResource =
+                        Ship::Context::GetRawInstance()->GetResourceManager()->LoadResource(gKafeiSkel);
+                    if (gKafeiSkelResource != nullptr && gKafeiSkelResource->GetRawPointer() != nullptr) {
+                        FlexSkeletonHeader* gKafeiSkelPtr =
+                            (FlexSkeletonHeader*)gKafeiSkelResource->GetRawPointer();
+                        gPlayState->playerInit(player, gPlayState, gKafeiSkelPtr);
+                        ApplyKafeiSkinParts(true);
+                    } else {
+                        gPlayState->playerInit(player, gPlayState, gPlayerSkeletons[player->transformation]);
+                    }
+                } else if (skinId == 0) { // Child Link (vanilla)
+                    gPlayState->playerInit(player, gPlayState, gPlayerSkeletons[player->transformation]);
+                    ApplyKafeiSkinParts(false);
+                } else {
+                    // Mod skin
+                    gPlayState->playerInit(player, gPlayState, gPlayerSkeletons[player->transformation]);
+                }
+            }
+        }
+    });
 }
 
 // We only want this running at boot, we don't want this running when the cvar is changed, only on scene destroy

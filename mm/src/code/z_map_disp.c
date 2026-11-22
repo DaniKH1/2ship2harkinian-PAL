@@ -565,7 +565,7 @@ static void MapDisp_Minimap_DrawMarker(PlayState* play, s32 posX, s32 posY, u8 r
     gDPLoadTextureBlock_Runtime(OVERLAY_DISP++, sWhiteSquareTex, G_IM_FMT_RGBA, G_IM_SIZ_16b, 16, 16, 0,
                                 G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK,
                                 G_TX_NOLOD, G_TX_NOLOD);
-    gSPTextureRectangle(OVERLAY_DISP++, (posX - 4) << 2, (posY - 4) << 2, (posX + 4) << 2, (posY + 4) << 2,
+    gSPTextureRectangle(OVERLAY_DISP++, posX << 2, posY << 2, (posX + 1) << 2, (posY + 1) << 2,
                         G_TX_RENDERTILE, 0, 0, 0, 0);
     CLOSE_DISPS(play->state.gfxCtx);
 }
