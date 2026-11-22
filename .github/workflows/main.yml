@@ -25,6 +25,20 @@ jobs:
         with:
           submodules: true
 
+      - name: Patch ZAPD WHOLEARCHIVE link path (PAL)
+        run: |
+          $f = "ZAPDTR/ZAPD/CMakeLists.txt"
+          $c = [System.IO.File]::ReadAllText($f)
+          $old = '-WHOLEARCHIVE:$<TARGET_LINKER_FILE_DIR:OTRExporter>/$<TARGET_LINKER_FILE_NAME:OTRExporter>'
+          $new = '-WHOLEARCHIVE:$<IF:$<CONFIG:Debug>,../x64/Debug/OTRExporter.lib,build-artifacts/lib/OTRExporter.lib>'
+          if ($c.Contains($old)) {
+            $c = $c.Replace($old, $new)
+            [System.IO.File]::WriteAllText($f, $c)
+            Write-Host "Patched ZAPD WHOLEARCHIVE path."
+          } else {
+            Write-Host "WHOLEARCHIVE line already patched or not found; skipping."
+          }
+
       - name: Configure sccache
         uses: hendrikmuhs/ccache-action@v1.2.22
         with:
