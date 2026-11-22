@@ -39,6 +39,9 @@ jobs:
             Write-Host "WHOLEARCHIVE line already patched or not found; skipping."
           }
 
+      - name: Install Python build dependencies
+        run: python -m pip install -r tools/ml64pak_converter/requirements-build.txt
+
       - name: Configure sccache
         uses: hendrikmuhs/ccache-action@v1.2.22
         with:
